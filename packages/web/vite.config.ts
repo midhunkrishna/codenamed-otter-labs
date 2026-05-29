@@ -10,6 +10,7 @@ const BACKEND = "http://localhost:4873";
 export default defineConfig({
   plugins: [react()],
   server: {
+    host: '0.0.0.0',
     port: 5873,
     proxy: {
       "/api": { target: BACKEND, changeOrigin: true },
