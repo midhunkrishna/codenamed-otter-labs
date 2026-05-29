@@ -1,0 +1,28 @@
+import type { OtterPaths } from "@otter/shared";
+import { ensureLayout } from "./layout.js";
+import { openDatabase, type Database } from "./database.js";
+import { runMigrations } from "./migrations.js";
+
+export { ensureLayout } from "./layout.js";
+export { openDatabase, type Database } from "./database.js";
+export { runMigrations, MIGRATIONS_DIR, type MigrationResult } from "./migrations.js";
+
+/** Result of {@link initPersistence}. */
+export interface InitResult {
+  db: Database.Database;
+  applied: string[];
+}
+
+/**
+ * One-call persistence startup, consumed by `@otter/core`.
+ *
+ * Creates the directory layout, opens (or creates) `otter.db`, and applies any
+ * pending migrations. Never deletes an existing database. A failed migration
+ * throws, which fails startup (MIN-12 invariant). Safe to run repeatedly.
+ */
+export function initPersistence(paths: OtterPaths): InitResult {
+  ensureLayout(paths);
+  const db = openDatabase(paths);
+  const { applied } = runMigrations(db);
+  return { db, applied };
+}
