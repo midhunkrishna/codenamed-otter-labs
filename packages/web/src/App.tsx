@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Board } from "./components/Board";
 import { HealthBadge } from "./components/HealthBadge";
 
 /** A primary navigation destination in the app shell. */
@@ -49,6 +50,7 @@ export function App() {
         </nav>
         <main className="app-content">
           <h2>{current.label}</h2>
+          {current.id === "board" ? <Board /> : null}
         </main>
       </div>
     </div>
