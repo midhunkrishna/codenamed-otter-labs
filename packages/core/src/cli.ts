@@ -1,6 +1,7 @@
 #!/usr/bin/env -S node --import tsx
 import { loadConfig, resolvePaths } from "@otter/shared";
 import type { OtterConfig, OtterPaths } from "@otter/shared";
+import { initPersistence } from "@otter/persistence";
 import { createServer } from "./server.js";
 
 /**
@@ -24,9 +25,7 @@ export type InitPersistence = (
   paths: OtterPaths,
 ) => Promise<{ db: unknown; applied: string[] }> | { db: unknown; applied: string[] };
 
-async function defaultInit(paths: OtterPaths) {
-  // Lazy import so unit tests don't hard-depend on @otter/persistence being built.
-  const { initPersistence } = await import("@otter/persistence");
+function defaultInit(paths: OtterPaths) {
   return initPersistence(paths);
 }
 
@@ -51,8 +50,10 @@ export async function startApp(
   paths: OtterPaths,
   { init = defaultInit }: StartAppDeps = {},
 ): Promise<RunningApp> {
-  await init(paths);
-  const app = await createServer(config, paths);
+  const { db } = await init(paths);
+  // `init` is a permissive DI seam (db: unknown) so unit tests can inject a stub.
+  // The real `defaultInit` yields the better-sqlite3 handle the routes expect.
+  const app = await createServer(config, paths, db as Parameters<typeof createServer>[2]);
   await app.listen({ port: config.port, host: "127.0.0.1" });
   return {
     url: `http://localhost:${config.port}`,
