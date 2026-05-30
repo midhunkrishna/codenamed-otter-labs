@@ -47,7 +47,12 @@ export async function createServer(
     // MIN-45: ensure the default local project exists before ticket/run creation.
     bootstrapDefaultProject(db, { root: paths.root, dataDir: paths.dataDir });
     registerTicketCoreRoutes(app, db, emit);
-    registerRuntimeRoutes(app, db, emit);
+    // Thread the project root (driver cwd) + data dir (run debug logs) so the
+    // MIN-44 `POST /api/runs/:id/start` route can spawn Claude under the project.
+    registerRuntimeRoutes(app, db, emit, {
+      projectRoot: paths.root,
+      dataDir: paths.dataDir,
+    });
   }
 
   // MIN-17: live event gateway (replaces the old /ws echo).

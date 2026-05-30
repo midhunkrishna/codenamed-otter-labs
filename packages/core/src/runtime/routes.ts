@@ -9,12 +9,15 @@
  *   GET  /api/runs/:id                            -> AgentRun | 404
  *   GET  /api/runs/:id/events                     -> AgentRunEvent[] (seq asc) | 404
  *   POST /api/runs/:id/cancel                     -> AgentRun | 404 | 409 (terminal)
+ *   POST /api/runs/:id/start                      -> 202 AgentRun | 404 | 409 (terminal/running)
  *   GET  /api/claude/status                       -> ClaudeStatus
  *   GET  /api/project                             -> Project
  *
  * Invariant (MIN-17): persist BEFORE broadcast — every `emit` happens after the
  * repo write succeeds.
  */
+import { join } from "node:path";
+import { mkdirSync } from "node:fs";
 import type { FastifyInstance } from "fastify";
 import {
   createAgentRunRepository,
@@ -22,11 +25,14 @@ import {
   createTicketRepository,
   type Database,
 } from "@otter/persistence";
-import { API_PREFIX, CHANNELS, isRunStatus, isRunType } from "@otter/shared";
+import { API_PREFIX, CHANNELS, isRunStatus, isRunType, isTerminalRunStatus } from "@otter/shared";
 import type { AgentRun, RunListFilter, RunStatus, RunType } from "@otter/shared";
 import type { Emit } from "../events/bus.js";
 import { getCachedClaudeStatus, refreshClaudeStatus } from "../claude/detect.js";
 import { getDefaultProject } from "../project/bootstrap.js";
+import { buildTicketContext } from "../context/packet.js";
+import { createClaudeCodeSubprocessRunner } from "../claude/runner.js";
+import type { ClaudeRunner } from "../claude/types.js";
 
 /** Run types that require a ready Claude before they can actually execute. */
 const CLAUDE_REQUIRED_TYPES: ReadonlySet<RunType> = new Set<RunType>(["planning", "execution"]);
@@ -42,14 +48,49 @@ function emitRun(
   emit?.(CHANNELS.run(run.id), type, payload);
 }
 
+/** Where the runtime routes need to live on disk: the project root the driver runs
+ * in (cwd) and the data dir under which per-run debug logs are written. Threaded
+ * from `server.ts` (`paths.root` / `paths.dataDir`). */
+export interface RuntimeRoutesPaths {
+  /** Absolute project root — the driver's `cwd` (MIN-44 invariant §2.5). */
+  projectRoot: string;
+  /** Absolute data dir; run debug logs land under `<dataDir>/logs/runs`. */
+  dataDir: string;
+}
+
 export function registerRuntimeHttpRoutes(
   app: FastifyInstance,
   db: Database.Database,
   emit?: Emit,
+  paths?: RuntimeRoutesPaths,
+  runnerOverride?: ClaudeRunner,
 ): void {
   const runs = createAgentRunRepository(db);
   const runEvents = createAgentRunEventRepository(db);
   const tickets = createTicketRepository(db);
+
+  // The driver's project root + per-run debug-log dir. `paths` is optional only so
+  // unit tests that exercise the CRUD routes can omit it; the start route requires it.
+  const projectRoot = paths?.projectRoot ?? process.cwd();
+  const logsDir = paths ? join(paths.dataDir, "logs", "runs") : join(process.cwd(), ".otter-labs", "logs", "runs");
+  // Ensure the debug-log dir exists up front (the runner also mkdir -p's defensively).
+  try {
+    mkdirSync(logsDir, { recursive: true });
+  } catch {
+    // non-fatal: the runner re-creates the dir before writing.
+  }
+
+  // Construct the subprocess runner ONCE and reuse it across requests (plan §3e).
+  // Tests inject a fake runner via `runnerOverride`.
+  const runner: ClaudeRunner =
+    runnerOverride ??
+    createClaudeCodeSubprocessRunner({
+      append: (runId, kind, payload) => runEvents.append(runId, kind, payload),
+      emit,
+      setRunStatus: (id, status) => runs.setStatus(id, status),
+      getRun: (id) => runs.get(id),
+      logsDir,
+    });
 
   // ---- Runs ---------------------------------------------------------------
 
@@ -147,6 +188,71 @@ export function registerRuntimeHttpRoutes(
       // Repo throws when the run is already terminal → 409 conflict.
       return reply.code(409).send({ error: err instanceof Error ? err.message : "cannot cancel run" });
     }
+  });
+
+  // ---- Start a run (MIN-44, plan §3e) ------------------------------------
+
+  app.post<{ Params: { id: string } }>(`${API_PREFIX}/runs/:id/start`, async (req, reply) => {
+    const run = runs.get(req.params.id);
+    if (!run) return reply.code(404).send({ error: "run not found" });
+
+    // 409 if the run is already terminal or already in flight.
+    if (isTerminalRunStatus(run.status)) {
+      return reply
+        .code(409)
+        .send({ error: `run is already ${run.status} and cannot be started` });
+    }
+    if (run.status === "running") {
+      return reply.code(409).send({ error: "run is already running" });
+    }
+
+    // Re-check Claude readiness for planning/execution (same guard shape as create):
+    // a not-ready Claude fails the run gracefully rather than spawning a doomed child.
+    if (CLAUDE_REQUIRED_TYPES.has(run.type)) {
+      const claude = await getCachedClaudeStatus();
+      if (!claude.ready) {
+        const failed = runs.setStatus(run.id, "failed") ?? run;
+        runEvents.append(run.id, "status_changed", { from: run.status, to: "failed" });
+        runEvents.append(run.id, "log", {
+          message:
+            `Claude Code is not ready, so this ${run.type} run cannot start. ` +
+            `${claude.error ?? "Run `claude --version` to verify the install."} ` +
+            `Once Claude is available, start the run again.`,
+        });
+        emitRun(emit, "run_status_changed", failed);
+        return reply.code(409).send(failed);
+      }
+    }
+
+    // Build the context document from the ticket (planning/execution). A run with no
+    // ticket (manual/review) gets a minimal context for the MVP.
+    const mode = run.type === "execution" ? "execution" : "planning";
+    const contextMarkdown =
+      run.ticketId !== null
+        ? buildTicketContext(db, run.ticketId, { mode, projectRoot })
+        : `# Run ${run.id}\n\n- Type: ${run.type}\n- Project root: ${projectRoot}\n`;
+
+    // Fire-and-forget: the runner drives the run to a terminal state asynchronously
+    // and streams live events over WS. We return 202 immediately with the queued run.
+    // The runner never rejects (§2.3), but guard the kickoff anyway so a synchronous
+    // throw can't bubble into the request handler.
+    try {
+      if (run.type === "execution") {
+        void runner.startExecutionRun({ runId: run.id, projectRoot, contextMarkdown });
+      } else {
+        // planning (and manual/review for the MVP) go through the planning path.
+        void runner.startPlanningRun({ runId: run.id, projectRoot, contextMarkdown });
+      }
+    } catch {
+      // A synchronous failure to even start is recorded as a failed run.
+      const failed = runs.setStatus(run.id, "failed") ?? run;
+      runEvents.append(run.id, "status_changed", { from: run.status, to: "failed" });
+      runEvents.append(run.id, "log", { message: "Failed to start the Claude run." });
+      emitRun(emit, "run_status_changed", failed);
+      return reply.code(409).send(failed);
+    }
+
+    return reply.code(202).send(run);
   });
 
   // ---- Claude readiness (MIN-18) -----------------------------------------
