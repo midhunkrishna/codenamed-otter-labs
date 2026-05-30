@@ -4,3 +4,6 @@ dist/
 .otter-labs/
 *.log
 .DS_Store
+
+# decoded design-language source artifact (MIN-43)
+.design-source/

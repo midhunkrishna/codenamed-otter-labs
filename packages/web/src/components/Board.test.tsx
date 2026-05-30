@@ -116,7 +116,7 @@ describe("Board", () => {
     expect(within(createdColumn).getByTestId("ticket-card-t1")).toBeInTheDocument();
   });
 
-  it("creating a ticket adds it to the board", async () => {
+  it("creating a ticket via the quick-capture composer adds it to the board", async () => {
     installFetch({
       tickets: [],
       comments: [],
@@ -125,12 +125,102 @@ describe("Board", () => {
 
     render(<Board />);
 
+    // The composer is on-demand: open it, then capture a title and add.
+    fireEvent.click(await screen.findByTestId("board-new-ticket"));
     fireEvent.change(screen.getByLabelText("New ticket title"), {
       target: { value: "Brand new" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Create ticket" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add ticket" }));
 
-    expect(await screen.findByText("Brand new")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("Brand new")).toBeInTheDocument();
+    });
+  });
+
+  it("column header shows status dot, count, owner pill, and hint", async () => {
+    installFetch({
+      tickets: [
+        ticket({ id: "t1", title: "A", status: "created" }),
+        ticket({ id: "t2", title: "B", status: "created" }),
+        ticket({ id: "t3", title: "C", status: "plannable" }),
+      ],
+      comments: [],
+      transitions: { current: "created", next: [] },
+    });
+
+    render(<Board />);
+    // Wait for the board to render at least one card.
+    await screen.findByTestId("ticket-card-t1");
+
+    const created = screen.getByRole("region", { name: "Created" });
+    expect(
+      created.querySelector('[data-status-dot="created"]'),
+    ).toBeInTheDocument();
+    // count badge + owner pill
+    expect(within(created).getByText("2")).toBeInTheDocument();
+    expect(within(created).getByText("YOU")).toBeInTheDocument();
+    expect(within(created).getByText("Drafted by you")).toBeInTheDocument();
+    // "+ New ticket" affordance lives only in the Created column
+    expect(within(created).getByTestId("board-new-ticket")).toBeInTheDocument();
+
+    const plannable = screen.getByRole("region", { name: "Plannable" });
+    expect(
+      plannable.querySelector('[data-status-dot="plannable"]'),
+    ).toBeInTheDocument();
+    expect(within(plannable).getByText("1")).toBeInTheDocument();
+    expect(within(plannable).getByText("AGENT")).toBeInTheDocument();
+    expect(
+      within(plannable).getByText("Ready for agent planning"),
+    ).toBeInTheDocument();
+    expect(within(plannable).queryByTestId("board-new-ticket")).toBeNull();
+  });
+
+  it("renders a derived phase chip on each card (YOUR TURN / AGENT QUEUED)", async () => {
+    installFetch({
+      tickets: [
+        ticket({ id: "t1", title: "Draft me", status: "created" }),
+        ticket({ id: "t2", title: "Run me", status: "plannable" }),
+        ticket({
+          id: "t3",
+          title: "Stuck",
+          status: "in_progress",
+          blockStatus: "blocked",
+        }),
+      ],
+      comments: [],
+      transitions: { current: "created", next: [] },
+    });
+
+    render(<Board />);
+    await screen.findByTestId("ticket-card-t1");
+
+    expect(
+      within(screen.getByTestId("ticket-card-t1")).getByText("YOUR TURN"),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("ticket-card-t2")).getByText("AGENT QUEUED"),
+    ).toBeInTheDocument();
+    // Blocked overrides status → CLARIFICATION NEEDED
+    expect(
+      within(screen.getByTestId("ticket-card-t3")).getByText(
+        "CLARIFICATION NEEDED",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("'+ New ticket' opens the composer and focuses the title input", async () => {
+    installFetch({
+      tickets: [],
+      comments: [],
+      transitions: { current: "created", next: [] },
+    });
+    render(<Board />);
+    // Wait for first paint then click the trigger.
+    const trigger = await screen.findByTestId("board-new-ticket");
+    fireEvent.click(trigger);
+    const input = screen.getByLabelText("New ticket title");
+    expect(input).toBeInTheDocument();
+    expect(input).toHaveFocus();
   });
 });
 
@@ -203,5 +293,36 @@ describe("TicketDetail (via Board)", () => {
     expect(
       within(actions).queryByRole("button", { name: "In Progress" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("opens the detail as a drawer; expand toggles full mode and Escape closes it", async () => {
+    await openDetail({
+      tickets: [ticket()],
+      comments: [],
+      transitions: { current: "created", next: [] },
+    });
+
+    // Detail renders inside an overlay dialog (board stays mounted behind it).
+    const dialog = screen.getByRole("dialog");
+    expect(
+      within(dialog).getByRole("region", { name: "Comments" }),
+    ).toBeInTheDocument();
+    expect(dialog.querySelector('[data-mode="side"]')).toBeInTheDocument();
+
+    // Expand to full, then collapse back to the side panel.
+    fireEvent.click(
+      screen.getByRole("button", { name: "Expand to full screen" }),
+    );
+    expect(dialog.querySelector('[data-mode="full"]')).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Collapse to side panel" }),
+    );
+    expect(dialog.querySelector('[data-mode="side"]')).toBeInTheDocument();
+
+    // Escape closes the drawer.
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
   });
 });

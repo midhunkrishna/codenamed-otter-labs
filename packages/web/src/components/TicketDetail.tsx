@@ -10,24 +10,21 @@ import {
   type Ticket,
   type TransitionsResponse,
 } from "../api/client";
-import { statusLabel } from "./status";
+import { ownerForTicket, statusLabel } from "./status";
+import { Button, PageHeader, Pill } from "../ui";
+import * as css from "../app/App.css";
 
 interface TicketDetailProps {
   ticketId: string;
-  /** Close the detail view and return to the board. */
-  onClose(): void;
   /** Called after any mutation so the parent board can refetch. */
   onMutated(): void;
 }
 
 /** Ticket detail: title, editable description, comment stream (oldest first),
  * add-comment form, and transition buttons driven ONLY by the backend's
- * `next` array. Refetches ticket + transitions + comments after mutations. */
-export function TicketDetail({
-  ticketId,
-  onClose,
-  onMutated,
-}: TicketDetailProps) {
+ * `next` array. Refetches ticket + transitions + comments after mutations.
+ * Rendered inside the board's Drawer, which owns closing (× / Esc / scrim). */
+export function TicketDetail({ ticketId, onMutated }: TicketDetailProps) {
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [transitions, setTransitions] = useState<TransitionsResponse | null>(
     null,
@@ -101,84 +98,96 @@ export function TicketDetail({
 
   if (!ticket) {
     return (
-      <section className="ticket-detail" aria-label="Ticket detail">
-        <button type="button" onClick={onClose}>
-          Back to board
-        </button>
+      <section className={css.detail} aria-label="Ticket detail">
         {error ? <p role="alert">{error}</p> : <p>Loading…</p>}
       </section>
     );
   }
 
-  return (
-    <section className="ticket-detail" aria-label="Ticket detail">
-      <button type="button" onClick={onClose}>
-        Back to board
-      </button>
+  const owner = ownerForTicket(ticket.status, ticket.blockStatus);
 
-      <h3>{ticket.title}</h3>
-      <p className="ticket-detail__status">
-        Status: {statusLabel(ticket.status)}
-      </p>
+  return (
+    <section className={css.detail} aria-label="Ticket detail">
+      <PageHeader
+        eyebrow={ticket.id}
+        title={ticket.title}
+        description={
+          <span className={css.actionRow}>
+            <Pill tone={`status.${ticket.status}`}>
+              {statusLabel(ticket.status)}
+            </Pill>
+            <Pill tone={`owner.${owner}`}>{owner}</Pill>
+            {ticket.blockStatus === "blocked" ? (
+              <Pill tone="risk.critical">Blocked</Pill>
+            ) : null}
+          </span>
+        }
+      />
 
       {error ? (
-        <p role="alert" className="ticket-detail__error">
+        <p role="alert" className={css.errorText}>
           {error}
         </p>
       ) : null}
 
-      <form className="ticket-detail__description" onSubmit={handleSaveDescription}>
-        <label>
+      <form className={css.detailSection} onSubmit={handleSaveDescription}>
+        <label className={css.fieldLabel}>
           Description
           <textarea
+            className={css.textarea}
             value={draftDescription}
             onChange={(e) => setDraftDescription(e.target.value)}
             aria-label="Edit description"
           />
         </label>
-        <button type="submit">Save description</button>
+        <div className={css.actionRow}>
+          <Button type="submit" variant="primary">
+            Save description
+          </Button>
+        </div>
       </form>
 
-      <section aria-label="Transitions" className="ticket-detail__transitions">
+      <section aria-label="Transitions" className={css.detailSection}>
         <h4>Actions</h4>
         {/* Buttons come ONLY from the backend `next` array — never hardcoded. */}
         {transitions && transitions.next.length > 0 ? (
-          transitions.next.map((to) => (
-            <button
-              key={to}
-              type="button"
-              onClick={() => handleTransition(to)}
-            >
-              {statusLabel(to)}
-            </button>
-          ))
+          <div className={css.actionRow}>
+            {transitions.next.map((to) => (
+              <Button key={to} onClick={() => handleTransition(to)}>
+                {statusLabel(to)}
+              </Button>
+            ))}
+          </div>
         ) : (
           <p>No actions available.</p>
         )}
       </section>
 
-      <section aria-label="Comments" className="ticket-detail__comments">
+      <section aria-label="Comments" className={css.detailSection}>
         <h4>Comments</h4>
-        <ul data-testid="comment-stream">
+        <ul data-testid="comment-stream" className={css.commentStream}>
           {comments.map((c) => (
-            <li key={c.id} className="comment">
-              <span className="comment__author">{c.author}</span>
-              <span className="comment__body">{c.body}</span>
+            <li key={c.id} className={css.comment}>
+              <span className={css.commentAuthor}>{c.author}</span>
+              <span className={css.commentBody}>{c.body}</span>
             </li>
           ))}
         </ul>
         <form onSubmit={handleAddComment}>
-          <label>
+          <label className={css.fieldLabel}>
             Add a comment
             <textarea
+              className={css.textarea}
               value={commentBody}
               onChange={(e) => setCommentBody(e.target.value)}
               aria-label="New comment"
             />
           </label>
-          <button type="submit" disabled={!commentBody.trim()}>
-            Add comment
-          </button>
+          <div className={css.actionRow}>
+            <Button type="submit" variant="primary" disabled={!commentBody.trim()}>
+              Add comment
+            </Button>
+          </div>
         </form>
       </section>
     </section>

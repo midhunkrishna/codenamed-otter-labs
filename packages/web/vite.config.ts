@@ -1,4 +1,5 @@
 /// <reference types="vitest" />
+import { vanillaExtractPlugin } from "@vanilla-extract/vite-plugin";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
@@ -8,7 +9,7 @@ import { defineConfig } from "vite";
 const BACKEND = "http://localhost:4873";
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [vanillaExtractPlugin(), react()],
   server: {
     host: '0.0.0.0',
     port: 5873,
