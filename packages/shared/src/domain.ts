@@ -56,6 +56,8 @@ export interface Ticket {
   createdAt: string;
   /** ISO-8601 UTC string; bumped on every mutation incl. transitions. */
   updatedAt: string;
+  /** The id of this ticket's approved plan, if any (MIN-23). Null until approval. */
+  approvedPlanId: string | null;
 }
 
 /** A comment row. Append-only in MVP (no edit/delete). */

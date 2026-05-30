@@ -10,9 +10,30 @@ import {
   type Ticket,
   type TransitionsResponse,
 } from "../api/client";
+import {
+  approvePlan,
+  getTicketPlans,
+  sendBackPlan,
+  type Plan,
+} from "../api/plans";
 import { ownerForTicket, statusLabel } from "./status";
-import { Button, PageHeader, Pill } from "../ui";
+import { Button, CodeBlock, PageHeader, PlanCard, Pill } from "../ui";
+import type { PlanState } from "../ui";
 import * as css from "../app/App.css";
+
+/** Map the plan status (plan §2.2) onto the PlanCard's visual state. */
+function planCardState(status: Plan["status"]): PlanState {
+  switch (status) {
+    case "approved":
+      return "approved";
+    case "sent_back":
+      return "rejected";
+    case "superseded":
+      return "superseded";
+    default:
+      return "proposed";
+  }
+}
 
 interface TicketDetailProps {
   ticketId: string;
@@ -30,6 +51,7 @@ export function TicketDetail({ ticketId, onMutated }: TicketDetailProps) {
     null,
   );
   const [comments, setComments] = useState<Comment[]>([]);
+  const [plans, setPlans] = useState<Plan[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   // Description editor state.
@@ -38,18 +60,23 @@ export function TicketDetail({ ticketId, onMutated }: TicketDetailProps) {
   // Add-comment state.
   const [commentBody, setCommentBody] = useState("");
 
+  // Send-back feedback (required for the send-back action).
+  const [feedback, setFeedback] = useState("");
+
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [t, tr, cs] = await Promise.all([
+      const [t, tr, cs, ps] = await Promise.all([
         getTicket(ticketId),
         getTransitions(ticketId),
         listComments(ticketId),
+        getTicketPlans(ticketId),
       ]);
       setTicket(t);
       setDraftDescription(t.description);
       setTransitions(tr);
       setComments(cs);
+      setPlans(ps);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load ticket");
     }
@@ -93,6 +120,30 @@ export function TicketDetail({ ticketId, onMutated }: TicketDetailProps) {
       onMutated();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Transition failed");
+    }
+  }
+
+  async function handleApprovePlan(planId: string) {
+    setError(null);
+    try {
+      await approvePlan(planId);
+      await load(); // refetch after mutation (invariant)
+      onMutated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Approve failed");
+    }
+  }
+
+  async function handleSendBackPlan(planId: string) {
+    if (!feedback.trim()) return; // feedback is required for send-back
+    setError(null);
+    try {
+      await sendBackPlan(planId, feedback.trim());
+      setFeedback("");
+      await load(); // refetch after mutation (invariant)
+      onMutated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Send back failed");
     }
   }
 
@@ -160,6 +211,68 @@ export function TicketDetail({ ticketId, onMutated }: TicketDetailProps) {
           </div>
         ) : (
           <p>No actions available.</p>
+        )}
+      </section>
+
+      <section aria-label="Plan" className={css.detailSection}>
+        <h4>Plan</h4>
+        {plans.length === 0 ? (
+          <p>No plan yet.</p>
+        ) : (
+          (() => {
+            // Plans come version DESC; the latest is the plan of record.
+            const latest = plans[0]!;
+            const canDecide =
+              ticket.status === "needs_user_approval" &&
+              latest.status === "proposed";
+            return (
+              <div data-testid="plan-card">
+                <PlanCard
+                  version={`v${latest.version}`}
+                  state={planCardState(latest.status)}
+                  title={latest.title || "Untitled plan"}
+                  meta={
+                    latest.artifactPath ? (
+                      <span>{latest.artifactPath}</span>
+                    ) : undefined
+                  }
+                >
+                  <CodeBlock code={latest.content} />
+                </PlanCard>
+
+                {canDecide ? (
+                  <div className={css.detailSection}>
+                    <div className={css.actionRow}>
+                      <Button
+                        variant="primary"
+                        onClick={() => handleApprovePlan(latest.id)}
+                      >
+                        Approve
+                      </Button>
+                    </div>
+                    <label className={css.fieldLabel}>
+                      Send-back feedback
+                      <textarea
+                        className={css.textarea}
+                        value={feedback}
+                        onChange={(e) => setFeedback(e.target.value)}
+                        aria-label="Send-back feedback"
+                      />
+                    </label>
+                    <div className={css.actionRow}>
+                      <Button
+                        variant="danger"
+                        disabled={!feedback.trim()}
+                        onClick={() => handleSendBackPlan(latest.id)}
+                      >
+                        Send back
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            );
+          })()
         )}
       </section>
 

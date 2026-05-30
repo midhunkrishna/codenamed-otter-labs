@@ -17,6 +17,7 @@ interface TicketRow {
   block_status: string;
   created_at: string;
   updated_at: string;
+  approved_plan_id: string | null;
 }
 
 /** Map a snake_case DB row to the camelCase {@link Ticket} domain object. */
@@ -29,6 +30,7 @@ function rowToTicket(row: TicketRow): Ticket {
     blockStatus: row.block_status as BlockStatus,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    approvedPlanId: row.approved_plan_id ?? null,
   };
 }
 
@@ -38,6 +40,8 @@ export interface TicketRepository {
   list(): Ticket[];
   update(id: string, patch: { title?: string; description?: string }): Ticket | undefined;
   setStatus(id: string, status: TicketStatus, blockStatus?: BlockStatus): Ticket | undefined;
+  /** Point the ticket at its approved plan (or clear it). Bumps updatedAt. */
+  setApprovedPlan(id: string, planId: string | null): Ticket | undefined;
 }
 
 /**
@@ -110,6 +114,16 @@ export function createTicketRepository(db: Database.Database): TicketRepository 
            WHERE id = ?`,
         ).run(status, id);
       }
+      return get(id);
+    },
+
+    setApprovedPlan(id, planId) {
+      if (!get(id)) return undefined;
+      db.prepare(
+        `UPDATE ticket
+         SET approved_plan_id = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+         WHERE id = ?`,
+      ).run(planId, id);
       return get(id);
     },
   };

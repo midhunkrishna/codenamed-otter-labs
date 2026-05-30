@@ -18,6 +18,7 @@
  * or filesystem side effects.
  */
 import type Database from "better-sqlite3";
+import { PLAN_MARKER_START, PLAN_MARKER_END } from "@otter/shared";
 
 /** Which kind of context document to produce. */
 export type ContextMode = "planning" | "execution";
@@ -276,6 +277,44 @@ export function buildTicketContext(
     lines.push(
       "Do NOT edit files, run commands, or modify the project in any way. Produce a plan only.",
     );
+    lines.push("");
+    // Machine-readable output contract (MIN-22 §2.4). The orchestrator parses the
+    // LAST such block out of your final message — anything outside it is ignored.
+    lines.push("### Output contract");
+    lines.push("");
+    lines.push(
+      "End your FINAL message with a single machine-readable plan block, delimited " +
+        `EXACTLY by the markers \`${PLAN_MARKER_START}\` and \`${PLAN_MARKER_END}\`. ` +
+        "The first line inside is a JSON header; then a line containing only `---`; " +
+        "then the plan as Markdown. Emit nothing after the end marker.",
+    );
+    lines.push("");
+    lines.push("When you have a plan, use this shape:");
+    lines.push("");
+    lines.push("```");
+    lines.push(PLAN_MARKER_START);
+    lines.push('{"status":"PLAN_READY","title":"<short title>"}');
+    lines.push("---");
+    lines.push("# <title>");
+    lines.push("");
+    lines.push("## Summary");
+    lines.push("...");
+    lines.push("## Steps");
+    lines.push("1. ...");
+    lines.push("## Risks / Open questions");
+    lines.push("- ...");
+    lines.push(PLAN_MARKER_END);
+    lines.push("```");
+    lines.push("");
+    lines.push("If you CANNOT produce a plan, use this shape instead:");
+    lines.push("");
+    lines.push("```");
+    lines.push(PLAN_MARKER_START);
+    lines.push('{"status":"PLAN_BLOCKED"}');
+    lines.push("---");
+    lines.push("<a short explanation of what is blocking you>");
+    lines.push(PLAN_MARKER_END);
+    lines.push("```");
   } else {
     lines.push("Mode: execution.");
     lines.push("");

@@ -36,6 +36,14 @@ export {
   createAgentRunEventRepository,
   type AgentRunEventRepository,
 } from "./repositories/runEvents.js";
+export {
+  createPlanRepository,
+  type PlanRepository,
+} from "./repositories/plans.js";
+export {
+  createAttentionRepository,
+  type AttentionRepository,
+} from "./repositories/attention.js";
 
 /** Result of {@link initPersistence}. */
 export interface InitResult {
