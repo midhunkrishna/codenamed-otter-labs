@@ -5,8 +5,9 @@
  *   POST /api/tickets/:id/comments → 201 Comment | 404 | 400 empty body / non-object metadata
  */
 import type { FastifyInstance } from "fastify";
-import { API_PREFIX } from "@otter/shared";
+import { API_PREFIX, CHANNELS } from "@otter/shared";
 import type { Comment } from "@otter/shared";
+import type { Emit } from "../events/bus.js";
 import type { TicketRepo } from "./tickets.js";
 
 /** Subset of the comment repository this route module consumes (plan §3c). */
@@ -26,6 +27,7 @@ export function registerCommentRoutes(
   app: FastifyInstance,
   tickets: Pick<TicketRepo, "get">,
   comments: CommentRepo,
+  emit?: Emit,
 ): void {
   app.get<{ Params: { id: string } }>(
     `${API_PREFIX}/tickets/:id/comments`,
@@ -58,6 +60,12 @@ export function registerCommentRoutes(
         author: body.author as string | undefined,
         metadata: body.metadata as Record<string, unknown> | undefined,
       });
+      // persisted above, then broadcast (MIN-17): per-ticket + project channels
+      emit?.(CHANNELS.ticket(comment.ticketId), "comment_created", {
+        id: comment.id,
+        ticketId: comment.ticketId,
+      });
+      emit?.(CHANNELS.project, "comment_created", { id: comment.id, ticketId: comment.ticketId });
       return reply.code(201).send(comment);
     },
   );

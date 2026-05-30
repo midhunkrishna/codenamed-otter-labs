@@ -43,6 +43,24 @@ lands.
   Verification MIN-39/40/41/42, Forms MIN-27.
 - **status:** Pending
 
+---
+
+## From plan 004 — runtime-foundations (MIN-17/18/19/20/32/45)
+
+### D-004-1 · Claude Code subprocess driver (the real executor) → MIN-44
+- **What:** plan 004 builds the runtime *substrate* (project entity, run persistence,
+  run API, event bus + WS gateway, Claude readiness detection, context packet, Runs
+  console) but NOT the Node subprocess driver that actually spawns `claude`, streams
+  stdout, normalizes output into `agent_run_events`, captures the Claude session id,
+  and supports cancel/resume.
+- **Why deferred:** user direction — this is its own ticket **MIN-44** `[claude-runtime]
+  Implement Claude Code subprocess driver`.
+- **Wire when:** building MIN-44. It plugs into the seam plan 004 leaves: append via
+  `createAgentRunEventRepository(db).append(runId, kind, payload)` then broadcast on
+  the event bus (`run:<id>` + `project` channels). Persist-before-broadcast holds.
+  Sequence per MIN-44: after MIN-20, before MIN-21 (start planning run on plannable).
+- **status:** Pending
+
 ### D-003-3 · Adopt `@vanilla-extract/dynamic` (optional)
 - **What:** dynamic per-instance tone vars are applied via a local `inlineVars()`
   shim in `ui/tone.ts` (unwraps `createVar()`'s `var(--x)` → bare `--x`).

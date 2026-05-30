@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { AppShell, EmptyState, Sidebar, type NavSection } from "./ui";
 import { Board } from "./components/Board";
+import { RunsConsole } from "./components/RunsConsole";
 import { HealthBadge } from "./components/HealthBadge";
 import { ThemeControls } from "./app/ThemeControls";
 import { PreviewRoute } from "./preview/PreviewRoute";
@@ -98,6 +99,8 @@ export function App() {
     <AppShell sidebar={sidebar} topbar={topbar}>
       {current.id === "board" ? (
         <Board />
+      ) : current.id === "runs" ? (
+        <RunsConsole />
       ) : current.id === "components" ? (
         <PreviewRoute />
       ) : (

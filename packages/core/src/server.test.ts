@@ -23,7 +23,24 @@ describe("startApp", () => {
   afterEach(() => vi.restoreAllMocks());
 
   it("respects the configured port and calls init exactly once", async () => {
-    const init = vi.fn(async () => ({ db: {}, applied: [] }));
+    // Startup now bootstraps the default project (MIN-45) via `db.prepare(...)`, so the
+    // injected fake db must tolerate a prepare()→run()/get() call. We keep persistence
+    // mocked out — this test only asserts port handling + init-call-count in isolation.
+    const fakeDb = {
+      prepare: () => ({
+        run: () => ({}),
+        get: () => ({
+          id: "local-project",
+          name: "Local Project",
+          root: "/srv/app",
+          data_dir: "/srv/app/.otter-labs",
+          created_at: "t",
+          updated_at: "t",
+        }),
+        all: () => [],
+      }),
+    };
+    const init = vi.fn(async () => ({ db: fakeDb, applied: [] }));
     const cfg = loadConfig({ OTTER_PORT: "5051" }, "/srv/app");
     const app = await startApp(cfg, paths, { init });
     expect(app.port).toBe(5051);
