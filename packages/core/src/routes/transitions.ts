@@ -11,10 +11,11 @@
  * status-change + event-insert are atomic (applyTransition).
  */
 import type { FastifyInstance } from "fastify";
-import { API_PREFIX, isTicketStatus } from "@otter/shared";
+import { API_PREFIX, CHANNELS, isTicketStatus } from "@otter/shared";
 import type { Ticket, TicketEvent, TicketStatus } from "@otter/shared";
 import type { Database } from "@otter/persistence";
 import { canTransition, nextTransitions, type TransitionContext } from "../lifecycle.js";
+import type { Emit } from "../events/bus.js";
 import type { TicketRepo } from "./tickets.js";
 
 /** Transactional transition applier from @otter/persistence (plan §3c). */
@@ -33,6 +34,7 @@ export function registerTransitionRoutes(
   db: Database.Database,
   tickets: Pick<TicketRepo, "get">,
   applyTransition: ApplyTransition,
+  emit?: Emit,
 ): void {
   app.get<{ Params: { id: string } }>(
     `${API_PREFIX}/tickets/:id/transitions`,
@@ -73,6 +75,10 @@ export function registerTransitionRoutes(
         toStatus: to,
         detail: typeof body.detail === "string" ? body.detail : "",
       });
+      // persisted atomically above, then broadcast (MIN-17)
+      const payload = { id: updated.id, from: ticket.status, to: updated.status };
+      emit?.(CHANNELS.ticket(updated.id), "ticket_transitioned", payload);
+      emit?.(CHANNELS.project, "ticket_transitioned", payload);
       return reply.code(200).send(updated);
     },
   );

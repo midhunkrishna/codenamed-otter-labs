@@ -8,8 +8,9 @@
  *                                POST /transitions — backend is sole lifecycle authority, MIN-15).
  */
 import type { FastifyInstance } from "fastify";
-import { API_PREFIX } from "@otter/shared";
+import { API_PREFIX, CHANNELS } from "@otter/shared";
 import type { Ticket } from "@otter/shared";
+import type { Emit } from "../events/bus.js";
 
 /** Subset of the ticket repository this route module consumes (plan §3c). */
 export interface TicketRepo {
@@ -23,7 +24,13 @@ function isNonEmptyString(v: unknown): v is string {
   return typeof v === "string" && v.trim().length > 0;
 }
 
-export function registerTicketRoutes(app: FastifyInstance, tickets: TicketRepo): void {
+/** MIN-17: broadcast a ticket change on both the project + per-ticket channels. */
+function emitTicketUpdated(emit: Emit | undefined, ticket: Ticket): void {
+  emit?.(CHANNELS.project, "ticket_updated", { id: ticket.id, status: ticket.status });
+  emit?.(CHANNELS.ticket(ticket.id), "ticket_updated", { id: ticket.id, status: ticket.status });
+}
+
+export function registerTicketRoutes(app: FastifyInstance, tickets: TicketRepo, emit?: Emit): void {
   app.get(`${API_PREFIX}/tickets`, async () => {
     return tickets.list();
   });
@@ -37,6 +44,7 @@ export function registerTicketRoutes(app: FastifyInstance, tickets: TicketRepo):
       return reply.code(400).send({ error: "description must be a string" });
     }
     const ticket = tickets.create({ title: body.title, description: body.description });
+    emitTicketUpdated(emit, ticket); // persisted above, then broadcast (MIN-17)
     return reply.code(201).send(ticket);
   });
 
@@ -62,6 +70,7 @@ export function registerTicketRoutes(app: FastifyInstance, tickets: TicketRepo):
     if (body.description !== undefined) patch.description = body.description as string;
     const updated = tickets.update(req.params.id, patch);
     if (!updated) return reply.code(404).send({ error: "ticket not found" });
+    emitTicketUpdated(emit, updated); // persisted above, then broadcast (MIN-17)
     return updated;
   });
 }

@@ -24,6 +24,18 @@ export {
   type ApplyTransitionInput,
   type ApplyTransitionResult,
 } from "./repositories/transitions.js";
+export {
+  createProjectRepository,
+  type ProjectRepository,
+} from "./repositories/projects.js";
+export {
+  createAgentRunRepository,
+  type AgentRunRepository,
+} from "./repositories/runs.js";
+export {
+  createAgentRunEventRepository,
+  type AgentRunEventRepository,
+} from "./repositories/runEvents.js";
 
 /** Result of {@link initPersistence}. */
 export interface InitResult {

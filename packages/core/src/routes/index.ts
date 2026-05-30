@@ -12,16 +12,24 @@ import {
   createTicketRepository,
   type Database,
 } from "@otter/persistence";
+import type { Emit } from "../events/bus.js";
 import { registerTicketRoutes } from "./tickets.js";
 import { registerCommentRoutes } from "./comments.js";
 import { registerTransitionRoutes } from "./transitions.js";
 
-/** Register all `/api` ticket-core routes, backed by repositories built from `db`. */
-export function registerTicketCoreRoutes(app: FastifyInstance, db: Database.Database): void {
+/**
+ * Register all `/api` ticket-core routes, backed by repositories built from `db`.
+ * `emit` (optional) is the MIN-17 event bus hook — routes call it AFTER persisting.
+ */
+export function registerTicketCoreRoutes(
+  app: FastifyInstance,
+  db: Database.Database,
+  emit?: Emit,
+): void {
   const tickets = createTicketRepository(db);
   const comments = createCommentRepository(db);
 
-  registerTicketRoutes(app, tickets);
-  registerCommentRoutes(app, tickets, comments);
-  registerTransitionRoutes(app, db, tickets, applyTransition);
+  registerTicketRoutes(app, tickets, emit);
+  registerCommentRoutes(app, tickets, comments, emit);
+  registerTransitionRoutes(app, db, tickets, applyTransition, emit);
 }
