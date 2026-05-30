@@ -55,17 +55,18 @@ lands.
   and supports cancel/resume.
 - **Why deferred:** user direction — this is its own ticket **MIN-44** `[claude-runtime]
   Implement Claude Code subprocess driver`.
-- **Wire when:** building MIN-44. It plugs into the seam plan 004 leaves: append via
-  `createAgentRunEventRepository(db).append(runId, kind, payload)` then broadcast on
-  the event bus (`run:<id>` + `project` channels). Persist-before-broadcast holds.
-  Sequence per MIN-44: after MIN-20, before MIN-21 (start planning run on plannable).
-- **status:** Pending
+- **Landed in:** plan 005 (claude-runtime, MIN-44). `claude/runner.ts`
+  (`createClaudeCodeSubprocessRunner`, execa, stream-json, persist-before-broadcast,
+  cancel via process-group kill, session note for resume) + `claude/streamParser.ts` +
+  `POST /api/runs/:id/start`. The auto-trigger on plannable remains MIN-21.
+- **status:** ✅ Done (plan 005)
 
 ### D-003-3 · Adopt `@vanilla-extract/dynamic` (optional)
 - **What:** dynamic per-instance tone vars are applied via a local `inlineVars()`
   shim in `ui/tone.ts` (unwraps `createVar()`'s `var(--x)` → bare `--x`).
 - **Why deferred:** `@vanilla-extract/dynamic` wasn't installed; the shim is the
   documented equivalent of `assignInlineVars` and works.
-- **Do when:** convenient — install the package and replace `inlineVars()` with
-  `assignInlineVars` for a smaller maintenance surface. Pure cleanup; no behavior change.
-- **status:** Pending
+- **Landed in:** plan 005 (claude-runtime). Installed `@vanilla-extract/dynamic@2.1.5`
+  (note: independently versioned at 2.x — there is no 4.x); `ui/tone.ts`'s `inlineVars()`
+  now delegates to `assignInlineVars`; `unwrapVar` shim deleted; call sites untouched.
+- **status:** ✅ Done (plan 005)
