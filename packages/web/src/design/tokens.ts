@@ -104,31 +104,58 @@ export const RISK_LABELS: Record<Risk, string> = {
   critical: "Critical",
 };
 
-/* ── Attention item types ─────────────────────────────────────── */
+/* ── Attention item types (canonical backend enum — plan 007 §1.6) ─── */
 
+/**
+ * The 6 CANONICAL backend `attention_type` values (mirror of
+ * `@otter/shared` ATTENTION_TYPES). The frontend consumes this enum — it does
+ * NOT invent presentational types. `run_stalled` shares the failure (red) tone.
+ */
 export const ATTENTION_TYPES = [
-  "permission",
-  "plan",
-  "question",
-  "verification",
-  "failure",
+  "permission_request",
+  "plan_approval",
+  "clarification_required",
+  "verification_review",
+  "execution_failed",
+  "run_stalled",
 ] as const;
 export type AttentionType = (typeof ATTENTION_TYPES)[number];
 
 export const attentionTone: Record<AttentionType, Tone> = {
-  permission: { fg: vars.color.toneAmber, soft: vars.color.toneAmberSoft },
-  plan: { fg: vars.color.toneBlue, soft: vars.color.toneBlueSoft },
-  question: { fg: vars.color.toneViolet, soft: vars.color.toneVioletSoft },
-  verification: { fg: vars.color.toneOrange, soft: vars.color.toneOrangeSoft },
-  failure: { fg: vars.color.toneRed, soft: vars.color.toneRedSoft },
+  permission_request: { fg: vars.color.toneAmber, soft: vars.color.toneAmberSoft },
+  plan_approval: { fg: vars.color.toneBlue, soft: vars.color.toneBlueSoft },
+  clarification_required: { fg: vars.color.toneViolet, soft: vars.color.toneVioletSoft },
+  verification_review: { fg: vars.color.toneOrange, soft: vars.color.toneOrangeSoft },
+  execution_failed: { fg: vars.color.toneRed, soft: vars.color.toneRedSoft },
+  run_stalled: { fg: vars.color.toneRed, soft: vars.color.toneRedSoft },
 };
 
 export const ATTENTION_LABELS: Record<AttentionType, string> = {
-  permission: "Permission",
-  plan: "Plan",
-  question: "Question",
-  verification: "Verification",
-  failure: "Failure",
+  permission_request: "Permission required",
+  plan_approval: "Plan approval required",
+  clarification_required: "Clarification required",
+  verification_review: "Verification required",
+  execution_failed: "Execution failed",
+  run_stalled: "Run stalled",
+};
+
+/** Sibling-filter group each attention_type rolls up into (MIN-37 §1.6). */
+export const ATTENTION_FILTER_GROUPS = [
+  "Permissions",
+  "Plans",
+  "Questions",
+  "Verification",
+  "Failures",
+] as const;
+export type AttentionFilterGroup = (typeof ATTENTION_FILTER_GROUPS)[number];
+
+export const attentionFilterGroup: Record<AttentionType, AttentionFilterGroup> = {
+  permission_request: "Permissions",
+  plan_approval: "Plans",
+  clarification_required: "Questions",
+  verification_review: "Verification",
+  execution_failed: "Failures",
+  run_stalled: "Failures",
 };
 
 /* ── Block status ─────────────────────────────────────────────── */

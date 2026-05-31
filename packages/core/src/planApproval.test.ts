@@ -118,7 +118,15 @@ maybe("plan approval + attention + docs (real SQLite)", () => {
   it("approve: proposed → ticket executable, attention resolved, approvedPlanId set", async () => {
     const { ticketId, planId } = seedNeedsApproval(db, "Approve me");
     const attention = persistence!.createAttentionRepository(db);
-    const item = attention.open({ ticketId, kind: "plan_approval", refId: planId });
+    const item = attention.open({
+      attentionType: "plan_approval",
+      sourceType: "plan",
+      sourceId: planId,
+      ticketId,
+      priority: "high",
+      title: "Plan awaiting approval",
+      requiredAction: "Approve plan or send back with feedback.",
+    });
 
     const res = await app.inject({ method: "POST", url: `/api/plans/${planId}/approve` });
     expect(res.statusCode).toBe(200);
@@ -146,7 +154,15 @@ maybe("plan approval + attention + docs (real SQLite)", () => {
   it("send-back: → ticket plannable, feedback comment present, attention resolved", async () => {
     const { ticketId, planId } = seedNeedsApproval(db, "Send back");
     const attention = persistence!.createAttentionRepository(db);
-    const item = attention.open({ ticketId, kind: "plan_approval", refId: planId });
+    const item = attention.open({
+      attentionType: "plan_approval",
+      sourceType: "plan",
+      sourceId: planId,
+      ticketId,
+      priority: "high",
+      title: "Plan awaiting approval",
+      requiredAction: "Approve plan or send back with feedback.",
+    });
 
     const res = await app.inject({
       method: "POST",
@@ -211,9 +227,13 @@ maybe("plan approval + attention + docs (real SQLite)", () => {
   it("GET /api/attention?status=open lists the open item (newest first)", async () => {
     const { ticketId, planId } = seedNeedsApproval(db, "Attention list");
     persistence!.createAttentionRepository(db).open({
+      attentionType: "plan_approval",
+      sourceType: "plan",
+      sourceId: planId,
       ticketId,
-      kind: "plan_approval",
-      refId: planId,
+      priority: "high",
+      title: "Plan awaiting approval",
+      requiredAction: "Approve plan or send back with feedback.",
     });
     const res = await app.inject({ method: "GET", url: "/api/attention?status=open" });
     expect(res.statusCode).toBe(200);
@@ -221,6 +241,8 @@ maybe("plan approval + attention + docs (real SQLite)", () => {
     expect(items.length).toBeGreaterThanOrEqual(1);
     expect(items.every((i: { status: string }) => i.status === "open")).toBe(true);
     expect(items[0].ticketId).toBe(ticketId); // newest first
+    expect(items[0].attentionType).toBe("plan_approval");
+    expect(items[0].sourceType).toBe("plan");
   });
 
   it("Docs: lists a written plan artifact; viewer serves content + rejects traversal", async () => {

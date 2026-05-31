@@ -114,7 +114,13 @@ export function createPlanningOrchestrator(deps: PlanningOrchestratorDeps): Plan
 
   /** Broadcast an attention-item-created event on the attention + project channels. */
   function emitAttentionCreated(item: AttentionItem): void {
-    const payload = { id: item.id, ticketId: item.ticketId, kind: item.kind, refId: item.refId };
+    const payload = {
+      id: item.id,
+      ticketId: item.ticketId,
+      attentionType: item.attentionType,
+      sourceType: item.sourceType,
+      sourceId: item.sourceId,
+    };
     deps.emit(CHANNELS.attention, "attention_item_created", payload);
     deps.emit(CHANNELS.project, "attention_item_created", payload);
   }
@@ -219,8 +225,17 @@ export function createPlanningOrchestrator(deps: PlanningOrchestratorDeps): Plan
       runEvents.append(runId, "log", { message: `Plan artifact not written: ${written.error}` });
     }
 
-    // Attention item (idempotent per ticket+kind) — persist before broadcast.
-    const item = attention.open({ kind: "plan_approval", ticketId, refId: plan.id });
+    // Attention item (idempotent per source+type) — persist before broadcast.
+    const item = attention.open({
+      attentionType: "plan_approval",
+      sourceType: "plan",
+      sourceId: plan.id,
+      ticketId,
+      priority: "high",
+      title: `Plan v${plan.version} awaiting approval`,
+      summary: result.title || "A plan is ready for your decision.",
+      requiredAction: "Approve plan or send back with feedback.",
+    });
     emitAttentionCreated(item);
 
     // Transition plannable → needs_user_approval — only if the ticket is still plannable.

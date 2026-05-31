@@ -9,7 +9,6 @@ import {
   createTicketRepository,
   createAgentRunRepository,
   createPlanRepository,
-  createAttentionRepository,
 } from "./index.js";
 
 let tmp: string;
@@ -138,67 +137,9 @@ describe("plan repository", () => {
   });
 });
 
-describe("attention repository", () => {
-  it("open is idempotent per (ticket, kind)", () => {
-    const tickets = createTicketRepository(db);
-    const attention = createAttentionRepository(db);
-    const t = tickets.create({ title: "T" });
-
-    const a1 = attention.open({ ticketId: t.id, kind: "plan_approval", refId: "plan-1", detail: "d" });
-    expect(a1.status).toBe("open");
-    const a2 = attention.open({ ticketId: t.id, kind: "plan_approval", refId: "plan-2" });
-    // Same open item returned; no duplicate, refId not mutated.
-    expect(a2.id).toBe(a1.id);
-    expect(a2.refId).toBe("plan-1");
-
-    const openCount = (
-      db.prepare("SELECT COUNT(*) AS n FROM attention_item WHERE ticket_id = ? AND status='open'").get(t.id) as {
-        n: number;
-      }
-    ).n;
-    expect(openCount).toBe(1);
-  });
-
-  it("resolve closes the item and resolveByTicketKind resolves the open one", () => {
-    const tickets = createTicketRepository(db);
-    const attention = createAttentionRepository(db);
-    const t = tickets.create({ title: "T" });
-
-    const a = attention.open({ ticketId: t.id, kind: "plan_approval" });
-    const resolved = attention.resolve(a.id);
-    expect(resolved.status).toBe("resolved");
-    expect(resolved.resolvedAt).toMatch(/Z$/);
-
-    // After resolving, a fresh open is allowed (partial index only constrains open).
-    const b = attention.open({ ticketId: t.id, kind: "plan_approval" });
-    expect(b.id).not.toBe(a.id);
-
-    const byKind = attention.resolveByTicketKind(t.id, "plan_approval");
-    expect(byKind?.id).toBe(b.id);
-    expect(byKind?.status).toBe("resolved");
-
-    // Nothing open now.
-    expect(attention.resolveByTicketKind(t.id, "plan_approval")).toBeUndefined();
-  });
-
-  it("list filters by status/ticket newest first", () => {
-    const tickets = createTicketRepository(db);
-    const attention = createAttentionRepository(db);
-    const t1 = tickets.create({ title: "T1" });
-    const t2 = tickets.create({ title: "T2" });
-    const a = attention.open({ ticketId: t1.id, kind: "plan_approval" });
-    const b = attention.open({ ticketId: t2.id, kind: "plan_approval" });
-    attention.resolve(a.id);
-
-    expect(attention.list({ status: "open" }).map((x) => x.id)).toEqual([b.id]);
-    expect(attention.list({ ticketId: t1.id }).map((x) => x.id)).toEqual([a.id]);
-  });
-
-  it("resolve throws for an unknown id", () => {
-    const attention = createAttentionRepository(db);
-    expect(() => attention.resolve("ghost")).toThrow();
-  });
-});
+// NOTE: the canonical attention repository (MIN-36) is exercised in
+// `attention.test.ts`. The legacy `attention_item` (singular) table remains
+// dormant after migration 0005 backfills it; plan-006 attention coverage moved.
 
 describe("ticket approved-plan link", () => {
   it("setApprovedPlan round-trips and approvedPlanId maps", () => {
@@ -219,26 +160,22 @@ describe("ticket approved-plan link", () => {
 });
 
 describe("planning durability across reopen", () => {
-  it("plans, attention and the approved-plan link survive a reopen", () => {
+  it("plans and the approved-plan link survive a reopen", () => {
     const paths = resolvePaths(tmp);
     const tickets = createTicketRepository(db);
     const plans = createPlanRepository(db);
-    const attention = createAttentionRepository(db);
 
     const t = tickets.create({ title: "T" });
     const p = plans.createProposed({ ticketId: t.id, runId: null, title: "v1", content: "durable" });
     plans.approve(p.id);
     tickets.setApprovedPlan(t.id, p.id);
-    attention.open({ ticketId: t.id, kind: "plan_approval", refId: p.id });
 
     db.close();
     db = initPersistence(paths).db;
 
     const plans2 = createPlanRepository(db);
     const tickets2 = createTicketRepository(db);
-    const attention2 = createAttentionRepository(db);
     expect(plans2.getApproved(t.id)?.content).toBe("durable");
     expect(tickets2.get(t.id)?.approvedPlanId).toBe(p.id);
-    expect(attention2.list({ status: "open", ticketId: t.id }).length).toBe(1);
   });
 });

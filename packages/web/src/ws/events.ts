@@ -36,7 +36,8 @@ export type EventType =
   | "run_output_delta"
   | "permission_requested"
   | "attention_item_created"
-  | "attention_item_resolved";
+  | "attention_item_resolved"
+  | "attention_item_updated";
 
 /** The wire envelope broadcast over `/ws` (mirror of EventEnvelope). */
 export interface EventEnvelope {

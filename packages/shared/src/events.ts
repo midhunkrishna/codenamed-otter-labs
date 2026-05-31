@@ -36,6 +36,7 @@ export const EVENT_TYPES = [
   "permission_requested",
   "attention_item_created",
   "attention_item_resolved",
+  "attention_item_updated",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 

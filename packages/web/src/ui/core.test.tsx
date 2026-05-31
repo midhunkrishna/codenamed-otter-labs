@@ -167,7 +167,7 @@ describe("Sidebar", () => {
             title: "Work",
             items: [
               { id: "board", label: "Board" },
-              { id: "attn", label: "Attention", badge: 4, badgeTone: "attention.permission" },
+              { id: "attn", label: "Attention", badge: 4, badgeTone: "attention.permission_request" },
             ],
           },
         ]}

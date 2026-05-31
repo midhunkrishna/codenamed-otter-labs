@@ -1,11 +1,12 @@
 /**
- * Plan approval + Attention API (MIN-23, plan §2.6).
+ * Plan approval API (MIN-23, plan §2.6). The Attention list/mutation API moved to
+ * `routes/attention.ts` (MIN-36, plan 007 §1.4); this module only RESOLVES the
+ * plan_approval attention item when a plan decision is made.
  *
  *   GET  /api/tickets/:id/plans          -> Plan[]  (version DESC) | 404
  *   GET  /api/plans/:id                  -> Plan | 404
  *   POST /api/plans/:id/approve          -> { ticket, plan } | 404 | 409
  *   POST /api/plans/:id/send-back        -> { ticket, plan } | 404 | 409 | 400
- *   GET  /api/attention?status=open      -> AttentionItem[] (newest first)
  *
  * Backend is the sole lifecycle authority. Approve drives needs_user_approval → executable
  * (with `planApproved=true`); send-back drives needs_user_approval → plannable (which the
@@ -103,7 +104,7 @@ export function registerPlanApprovalRoutes(
         toStatus: "executable",
         detail: "plan approved",
       });
-      const resolved = attention.resolveByTicketKind(ticket.id, "plan_approval");
+      const resolved = attention.resolveBySource("plan", plan.id, "plan_approval");
 
       emitTransitioned(emit, updated.id, ticket.status, updated.status);
       if (resolved) emitAttentionResolved(emit, resolved.id, ticket.id);
@@ -146,23 +147,12 @@ export function registerPlanApprovalRoutes(
         toStatus: "plannable",
         detail: "plan sent back",
       });
-      const resolved = attention.resolveByTicketKind(ticket.id, "plan_approval");
+      const resolved = attention.resolveBySource("plan", plan.id, "plan_approval");
 
       emitTransitioned(emit, updated.id, ticket.status, updated.status);
       if (resolved) emitAttentionResolved(emit, resolved.id, ticket.id);
 
       return reply.code(200).send({ ticket: updated, plan: sentBack });
-    },
-  );
-
-  app.get<{ Querystring: { status?: string } }>(
-    `${API_PREFIX}/attention`,
-    async (req) => {
-      const status = req.query.status;
-      if (status === "open" || status === "resolved") {
-        return attention.list({ status });
-      }
-      return attention.list();
     },
   );
 }

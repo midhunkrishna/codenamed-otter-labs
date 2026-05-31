@@ -106,7 +106,7 @@ describe("AttentionCard", () => {
   it("renders the type accent and priority tone", () => {
     const { container } = render(
       <AttentionCard
-        type="permission"
+        type="permission_request"
         priority="urgent"
         title="Approve shell command"
         summary="Agent wants to run a command"
@@ -115,9 +115,9 @@ describe("AttentionCard", () => {
       />,
     );
     const card = container.querySelector("[data-attention-type]")!;
-    expect(card).toHaveAttribute("data-attention-type", "permission");
+    expect(card).toHaveAttribute("data-attention-type", "permission_request");
     expect(card).toHaveAttribute("data-priority", "urgent");
-    expect(screen.getByText("Permission")).toBeInTheDocument();
+    expect(screen.getByText("Permission required")).toBeInTheDocument();
     expect(screen.getByText("Urgent")).toBeInTheDocument();
     expect(screen.getByText("MIN-9")).toBeInTheDocument();
     expect(
@@ -129,7 +129,7 @@ describe("AttentionCard", () => {
     const onClick = vi.fn();
     render(
       <AttentionCard
-        type="question"
+        type="clarification_required"
         priority="normal"
         title="A question"
         onClick={onClick}
@@ -144,7 +144,7 @@ describe("ExpandedAttentionCard", () => {
   it("renders the shared header plus the source body and supports sticky", () => {
     const { container } = render(
       <ExpandedAttentionCard
-        type="plan"
+        type="plan_approval"
         priority="high"
         title="Plan ready"
         sticky
@@ -152,11 +152,10 @@ describe("ExpandedAttentionCard", () => {
         <div data-source-body>Approach details</div>
       </ExpandedAttentionCard>,
     );
-    expect(container.querySelector("[data-attention-type=plan]")).toHaveAttribute(
-      "data-sticky",
-      "true",
-    );
-    expect(screen.getByText("Plan")).toBeInTheDocument();
+    expect(
+      container.querySelector("[data-attention-type=plan_approval]"),
+    ).toHaveAttribute("data-sticky", "true");
+    expect(screen.getByText("Plan approval required")).toBeInTheDocument();
     expect(screen.getByText("High")).toBeInTheDocument();
     expect(
       container.querySelector("[data-expanded-body] [data-source-body]"),

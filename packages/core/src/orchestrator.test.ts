@@ -154,7 +154,11 @@ describe("planning orchestrator (real SQLite + bus, fake runner/writer)", () => 
 
     const open = attention().list({ status: "open", ticketId: ticket.id });
     expect(open).toHaveLength(1);
-    expect(open[0]).toMatchObject({ kind: "plan_approval", refId: ticketPlans[0]?.id });
+    expect(open[0]).toMatchObject({
+      attentionType: "plan_approval",
+      sourceType: "plan",
+      sourceId: ticketPlans[0]?.id,
+    });
   });
 
   it("completed planning run with an invalid result → ticket stays plannable + parse_error note", async () => {
