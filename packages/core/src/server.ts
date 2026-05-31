@@ -8,15 +8,22 @@ import type { HealthResponse, OtterConfig, OtterPaths } from "@otter/shared";
 import {
   createAgentRunRepository,
   createAgentRunEventRepository,
+  createCommentRepository,
+  createTicketRepository,
+  createAttentionRepository,
+  createFormRepository,
   type Database,
 } from "@otter/persistence";
 import { registerTicketCoreRoutes } from "./routes/index.js";
 import { registerDocsRoutes } from "./routes/docs.js";
+import { registerFormsRoutes } from "./routes/forms.js";
 import { createEventBus, type Emit } from "./events/bus.js";
 import { registerEventGateway } from "./events/gateway.js";
 import { registerRuntimeRoutes, bootstrapDefaultProject } from "./runtime/index.js";
 import { createClaudeCodeSubprocessRunner } from "./claude/runner.js";
 import { createPlanningOrchestrator } from "./runtime/orchestrator.js";
+import { createFormService } from "./forms/service.js";
+import { createCommentForwarder } from "./forwarding/forwarder.js";
 import { writeArtifact } from "./artifacts/writer.js";
 
 /**
@@ -65,7 +72,6 @@ export async function createServer(
   if (db !== undefined) {
     // MIN-45: ensure the default local project exists before ticket/run creation.
     bootstrapDefaultProject(db, { root: paths.root, dataDir: paths.dataDir });
-    registerTicketCoreRoutes(app, db, emit);
 
     // Construct the Claude subprocess runner ONCE (plan §3) and share it with both
     // the start route and the planning orchestrator, so the manual-start path and
@@ -86,6 +92,39 @@ export async function createServer(
       logsDir,
     });
 
+    // MIN-26: ONE shared comment forwarder — resumes a parked Claude session
+    // (`waiting_on_user_input`) with new ticket comments via `runner.resumeRun`. Its
+    // `forwardComment` is passed to BOTH the comments route and the form service so
+    // both the user-comment path and the form-answer path resume the same session.
+    const forwarder = createCommentForwarder({
+      runs,
+      events: runEvents,
+      comments: createCommentRepository(db),
+      projectRoot: paths.root,
+      resumeRun: (input) => runner.resumeRun(input),
+      emit,
+    });
+
+    // MIN-27: clarification-form lifecycle service (the OTTER_FORM producer + the
+    // internal POST /forms route share it). It forwards answers over the MIN-26 path.
+    const formService = createFormService({
+      db,
+      forms: createFormRepository(db),
+      comments: createCommentRepository(db),
+      attention: createAttentionRepository(db),
+      tickets: createTicketRepository(db),
+      runs,
+      emit,
+      forwardComment: forwarder.forwardComment,
+    });
+
+    // MIN-14/15 + MIN-26: ticket-core routes, with the comments route wired to the
+    // shared forwarder (registered after the runner exists so the forwarder is ready).
+    registerTicketCoreRoutes(app, db, emit, forwarder.forwardComment);
+
+    // MIN-27: clarification-form REST routes.
+    registerFormsRoutes(app, { db, formService });
+
     // Thread the project root (driver cwd) + data dir (run debug logs) so the
     // MIN-44 `POST /api/runs/:id/start` route can spawn Claude under the project.
     registerRuntimeRoutes(
@@ -99,8 +138,9 @@ export async function createServer(
     // MIN-33: Docs / plan-artifact routes (Impl-C).
     registerDocsRoutes(app, db, { dataDir: paths.dataDir });
 
-    // MIN-21/22: auto-planning orchestrator — listens for tickets entering
-    // `plannable` and turns finished planning runs into plan artifacts + attention.
+    // MIN-21/22/27: auto-planning orchestrator — listens for tickets entering
+    // `plannable`, turns finished planning runs into plan artifacts + attention, and
+    // parks the run on an OTTER_FORM clarification via the form service's createForm.
     const orchestrator = createPlanningOrchestrator({
       db,
       bus,
@@ -109,6 +149,7 @@ export async function createServer(
       projectRoot: paths.root,
       dataDir: paths.dataDir,
       writeArtifact,
+      createForm: formService.createForm,
     });
     orchestrator.start();
   }

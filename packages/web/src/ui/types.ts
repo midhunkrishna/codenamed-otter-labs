@@ -245,11 +245,55 @@ export type FormCommentState =
   | "dismissed"
   | "expired"
   | "superseded";
+
+/** The 5 MVP form field types (mirror of @otter/shared FORM_FIELD_TYPES). */
+export type FormFieldType =
+  | "short_text"
+  | "long_text"
+  | "single_select"
+  | "multi_select"
+  | "boolean";
+
+export interface FormFieldOption {
+  label: string;
+  value: string;
+}
+
+/** A single question rendered inside the inner form card. */
+export interface FormCommentQuestion {
+  key: string;
+  type: FormFieldType;
+  label: ReactNode;
+  helpText?: ReactNode;
+  required?: boolean;
+  options?: FormFieldOption[];
+}
+
+/** Answers keyed by question.key (mirror of SubmitFormInput.answers). */
+export type FormCommentAnswers = Record<string, unknown>;
+
 export interface FormCommentCardProps extends BaseProps {
   author: ReactNode;
   state: FormCommentState;
   /** Blocks the ticket while open. */
   blocking?: boolean;
+  /** Form phase (planning / execution / verification / manual). */
+  phase?: ReactNode;
+  /** Agent prose line shown beneath the eyebrow. */
+  prose?: ReactNode;
+  /** Relative time meta (e.g. "2m ago"). */
+  time?: ReactNode;
+  /**
+   * Structured questions. When provided, the card renders the interactive
+   * field rows + the indigo "Submit answers" footer itself; `onSubmit` is
+   * called with the keyed answers and the button is disabled until every
+   * required question is answered. When omitted, `children`/`footer` render
+   * (legacy / preview usage).
+   */
+  questions?: FormCommentQuestion[];
+  onSubmit?(answers: FormCommentAnswers): void;
+  /** Disable the submit affordance (e.g. while a request is in flight). */
+  submitting?: boolean;
   children?: ReactNode;
   footer?: ReactNode;
 }

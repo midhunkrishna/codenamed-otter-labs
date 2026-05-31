@@ -37,6 +37,9 @@ export const EVENT_TYPES = [
   "attention_item_created",
   "attention_item_resolved",
   "attention_item_updated",
+  "form_created",
+  "form_submitted",
+  "form_dismissed",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 

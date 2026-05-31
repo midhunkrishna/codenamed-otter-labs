@@ -60,6 +60,27 @@ export interface Ticket {
   approvedPlanId: string | null;
 }
 
+/**
+ * Comment kinds (comment-context, MIN-26/MIN-27). Read off `Comment.metadata.kind`;
+ * the {@link Comment} interface shape is unchanged (metadata stays free-form JSON).
+ */
+export const COMMENT_KINDS = ["user", "agent", "form", "form_answer", "system"] as const;
+export type CommentKind = (typeof COMMENT_KINDS)[number];
+
+/**
+ * Agent delivery status for a forwarded comment (MIN-26). Read off
+ * `Comment.metadata.agentDeliveryStatus`. Together with `sendToAgent`,
+ * `formId`, `kind` and `targetRunId`, these describe the optional metadata
+ * fields a comment may carry — the column itself remains free-form JSON.
+ */
+export const AGENT_DELIVERY_STATUSES = [
+  "not_applicable",
+  "pending",
+  "delivered",
+  "skipped_no_active_run",
+] as const;
+export type AgentDeliveryStatus = (typeof AGENT_DELIVERY_STATUSES)[number];
+
 /** A comment row. Append-only in MVP (no edit/delete). */
 export interface Comment {
   id: string;

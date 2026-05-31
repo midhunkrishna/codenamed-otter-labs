@@ -5,6 +5,11 @@
  * into a Claude planning run, then turns that run's COMPLETED result into a durable
  * plan artifact + an Attention item + a `needs_user_approval` transition.
  *
+ * MIN-27: a completed planning run is scanned for an `OTTER_FORM` clarification
+ * block FIRST — if found, the run is parked at `waiting_on_user_input` (via the
+ * injected `createForm` form service) and NO plan is produced (the user must answer
+ * before planning continues). A co-emitted `OTTER_PLAN` is ignored in that case.
+ *
  * Invariants honored here:
  *  - One active planning run per ticket (dedup on a non-terminal planning run).
  *  - A not-ready Claude fails the run gracefully (no doomed child), mirroring the
@@ -14,13 +19,17 @@
  *    the planning-run dedup, so a duplicate `run_status_changed` is harmless.
  *
  * The orchestrator is fully dependency-injected so it can be unit-tested with a fake
- * runner + a fake `writeArtifact` against real SQLite, WITHOUT importing the real
- * artifact writer (Impl-C's module) — only `server.ts` wires the real one in.
+ * runner + a fake `writeArtifact` + a fake `createForm` against real SQLite, WITHOUT
+ * importing the real artifact writer / form service — only `server.ts` wires the
+ * real ones in.
  */
 import {
   CHANNELS,
   type AttentionItem,
   type Plan,
+  type CreateFormInput,
+  type Form,
+  type Comment,
 } from "@otter/shared";
 import {
   createAgentRunRepository,
@@ -37,7 +46,12 @@ import type { ClaudeStatus } from "../claude/detect.js";
 import { getCachedClaudeStatus } from "../claude/detect.js";
 import { buildTicketContext } from "../context/packet.js";
 import { parsePlanResult } from "../claude/planResult.js";
+import { parseFormResult } from "../claude/formResult.js";
 import type { ClaudeRunner } from "../claude/types.js";
+
+/** Create a clarification form (the OTTER_FORM producer). `server.ts` passes
+ * `formService.createForm`; tests pass a fake. */
+type CreateForm = (ticketId: string, input: CreateFormInput) => { form: Form; comment: Comment };
 
 /**
  * Structural type of the artifact writer (§2.5). Declared locally so the
@@ -70,6 +84,9 @@ export interface PlanningOrchestratorDeps {
   writeArtifact: WriteArtifact;
   /** Claude readiness probe; defaults to the cached boot probe. */
   isClaudeReady?: () => Promise<ClaudeStatus>;
+  /** MIN-27: create a clarification form (the OTTER_FORM producer). Injected;
+   * tests pass a fake. `server.ts` passes `formService.createForm`. */
+  createForm?: CreateForm;
 }
 
 /** The orchestrator surface: `start()` subscribes and returns an unsubscribe fn. */
@@ -174,7 +191,7 @@ export function createPlanningOrchestrator(deps: PlanningOrchestratorDeps): Plan
 
   /**
    * Concatenate the run's `structured_result` note value + all `output_delta` text,
-   * newest context last — the text fed to {@link parsePlanResult}.
+   * newest context last — the text fed to {@link parsePlanResult} / {@link parseFormResult}.
    */
   function collectResultText(runId: string): string {
     const events = runEvents.list(runId); // seq asc
@@ -191,9 +208,33 @@ export function createPlanningOrchestrator(deps: PlanningOrchestratorDeps): Plan
     return parts.join("\n");
   }
 
-  /** MIN-22: a planning run completed → parse + materialize the plan (or record why not). */
+  /** MIN-22/27: a planning run completed → either ask a clarification form, or
+   * parse + materialize the plan (or record why not). */
   function processPlanningResult(runId: string, ticketId: string): void {
-    const result = parsePlanResult(collectResultText(runId));
+    const text = collectResultText(runId);
+
+    // MIN-27: scan for an OTTER_FORM clarification block FIRST. A planning run that
+    // asks the user parks at `waiting_on_user_input` (the form service re-parks the
+    // run, opens a `clarification_required` attention item, and sets the ticket
+    // block) and produces NO plan — a co-emitted OTTER_PLAN is ignored (questions
+    // outrank a guess). The orchestrator just re-broadcasts the parked run status.
+    const formResult = parseFormResult(text);
+    if (formResult.found && formResult.form && deps.createForm) {
+      deps.createForm(ticketId, { ...formResult.form, runId });
+      const parked = runs.get(runId);
+      if (parked) {
+        deps.emit(CHANNELS.project, "run_status_changed", {
+          id: parked.id,
+          runId: parked.id,
+          status: parked.status,
+          type: parked.type,
+          ticketId: parked.ticketId,
+        });
+      }
+      return; // do NOT run the plan path.
+    }
+
+    const result = parsePlanResult(text);
 
     if (result.kind === "blocked") {
       runEvents.append(runId, "note", { kind: "plan_blocked", reason: result.reason });
