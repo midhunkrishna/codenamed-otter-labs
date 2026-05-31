@@ -30,9 +30,52 @@ import {
   VerificationPacketTabs,
   type VerificationTab,
 } from "../ui";
+import type { FormCommentQuestion } from "../ui/types";
 import { ownerForTicket, statusLabel } from "../components/status";
 import { ThemeControls } from "../app/ThemeControls";
 import * as css from "./PreviewRoute.css";
+
+/** The OTR-101 OAuth clarification scenario (plan §1.5), one of each field type. */
+const OAUTH_QUESTIONS: FormCommentQuestion[] = [
+  {
+    key: "provider",
+    type: "single_select",
+    label: "Which OAuth provider should we integrate first?",
+    required: true,
+    options: [
+      { label: "Google", value: "google" },
+      { label: "GitHub", value: "github" },
+      { label: "Microsoft", value: "microsoft" },
+    ],
+  },
+  {
+    key: "scopes",
+    type: "multi_select",
+    label: "Which scopes do we need?",
+    helpText: "Pick all that apply.",
+    options: [
+      { label: "Profile", value: "profile" },
+      { label: "Email", value: "email" },
+      { label: "Calendar", value: "calendar" },
+    ],
+  },
+  {
+    key: "refresh",
+    type: "boolean",
+    label: "Should we support refresh tokens?",
+    required: true,
+  },
+  {
+    key: "redirect",
+    type: "short_text",
+    label: "What redirect URI should we register?",
+  },
+  {
+    key: "notes",
+    type: "long_text",
+    label: "Any other constraints we should know about?",
+  },
+];
 
 /** Owner per attention type, just for visually varied specimen cards. */
 const ATTENTION_PRIORITY: Record<AttentionType, Priority> = {
@@ -305,12 +348,37 @@ export function PreviewRoute() {
           <p>Approach: replace hand-rolled markup with ui primitives.</p>
         </PlanCard>
         <PlanCard version="v1" state="superseded" title="Superseded plan" />
-        <FormCommentCard author="agent-7" state="open" blocking>
-          <p>Which database should the new service use?</p>
-        </FormCommentCard>
-        <FormCommentCard author="agent-7" state="submitted">
-          <p>Resolved form comment.</p>
-        </FormCommentCard>
+      </div>
+
+      {/* ── Domain: FormCommentCard (the OTR-101 clarification form) ── */}
+      <SectionHeader
+        title="FormCommentCard — clarification form"
+        tag="domain"
+      />
+      <div className={css.grid}>
+        <Specimen label="FormCommentCard — clarification form (open, blocking)">
+          <FormCommentCard
+            author="planner-agent"
+            state="open"
+            blocking
+            phase="planning"
+            time="2m ago"
+            prose="Before I plan the auth work, I need a couple of decisions from you."
+            questions={OAUTH_QUESTIONS}
+            onSubmit={() => {}}
+          />
+        </Specimen>
+        <Specimen label="FormCommentCard — submitted (resolved)">
+          <FormCommentCard
+            author="planner-agent"
+            state="submitted"
+            phase="planning"
+            time="1m ago"
+            prose="Thanks — using the answers below to plan."
+            questions={OAUTH_QUESTIONS}
+            onSubmit={() => {}}
+          />
+        </Specimen>
       </div>
 
       {/* ── Domain: VerificationPacketTabs ───────────────────── */}

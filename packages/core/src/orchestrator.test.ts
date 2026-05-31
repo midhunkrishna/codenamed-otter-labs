@@ -18,7 +18,15 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CHANNELS, PLAN_MARKER_START, PLAN_MARKER_END, type OtterPaths } from "@otter/shared";
+import {
+  CHANNELS,
+  PLAN_MARKER_START,
+  PLAN_MARKER_END,
+  FORM_MARKER_START,
+  FORM_MARKER_END,
+  type CreateFormInput,
+  type OtterPaths,
+} from "@otter/shared";
 import { resolvePaths } from "@otter/shared";
 import {
   initPersistence,
@@ -39,6 +47,30 @@ import type { ClaudeRunner as Runner } from "./claude/types.js";
 function planBlock(header: string, body: string): string {
   return `${PLAN_MARKER_START}\n${header}\n---\n${body}\n${PLAN_MARKER_END}`;
 }
+
+/** A clarification-form blob in the OTTER_FORM contract. */
+function formBlock(json: string): string {
+  return `${FORM_MARKER_START}\n${json}\n${FORM_MARKER_END}`;
+}
+
+const FORM_JSON = JSON.stringify({
+  phase: "planning",
+  title: "OAuth provider",
+  commentBody: "Which provider?",
+  blocksTicket: true,
+  questions: [
+    {
+      key: "provider",
+      type: "single_select",
+      label: "Provider",
+      required: true,
+      options: [
+        { label: "Google", value: "google" },
+        { label: "GitHub", value: "github" },
+      ],
+    },
+  ],
+});
 
 describe("planning orchestrator (real SQLite + bus, fake runner/writer)", () => {
   let dir: string;
@@ -63,7 +95,10 @@ describe("planning orchestrator (real SQLite + bus, fake runner/writer)", () => 
   }
 
   /** Build + start an orchestrator with a controllable Claude-readiness probe. */
-  function startOrchestrator(ready = true): void {
+  function startOrchestrator(
+    ready = true,
+    createForm?: (ticketId: string, input: CreateFormInput) => { form: never; comment: never },
+  ): void {
     const orch = createPlanningOrchestrator({
       db,
       bus,
@@ -72,6 +107,7 @@ describe("planning orchestrator (real SQLite + bus, fake runner/writer)", () => 
       projectRoot: paths.root,
       dataDir: paths.dataDir,
       writeArtifact: writeArtifact as unknown as WriteArtifact,
+      createForm: createForm as never,
       isClaudeReady: async () => (ready ? { ready: true } : { ready: false, error: "no claude" }),
     });
     stop = orch.start();
@@ -197,5 +233,66 @@ describe("planning orchestrator (real SQLite + bus, fake runner/writer)", () => 
     const log = runEvents().list(run.id).find((e) => e.kind === "log");
     expect(log).toBeDefined();
     expect(String(log!.payload.message).toLowerCase()).toContain("claude");
+  });
+
+  it("planning run emitting OTTER_FORM parks at waiting_on_user_input + opens a form, no plan", async () => {
+    // Fake createForm: the real form service would park the run; emulate that here so
+    // the orchestrator's broadcast reflects waiting_on_user_input (plan §5 re-park).
+    const createForm = vi.fn((ticketId: string, _input: CreateFormInput) => {
+      const runId = runs().list({ ticketId }).find((r) => r.type === "planning")!.id;
+      runs().setStatus(runId, "waiting_on_user_input"); // completed → re-parked
+      return { form: { id: "form-1" }, comment: { id: "c-1" } };
+    });
+    startOrchestrator(true, createForm as never);
+
+    const ticket = tickets().create({ title: "Ambiguous" });
+    transitionToPlannable(ticket.id);
+    await vi.waitFor(() => expect(startPlanningRun).toHaveBeenCalledTimes(1));
+    const run = runs().list({ ticketId: ticket.id }).find((r) => r.type === "planning")!;
+
+    runEvents().append(run.id, "note", { kind: "structured_result", value: formBlock(FORM_JSON) });
+    runs().setStatus(run.id, "completed");
+    bus.publish(CHANNELS.project, "run_status_changed", { id: run.id, runId: run.id, seq: 1 });
+
+    await vi.waitFor(() => expect(createForm).toHaveBeenCalledTimes(1));
+    // form producer ran with the runId pinned in the input
+    expect(createForm.mock.calls[0]?.[0]).toBe(ticket.id);
+    expect((createForm.mock.calls[0]?.[1] as CreateFormInput).runId).toBe(run.id);
+
+    // run re-parked, NOT terminal-completed
+    expect(runs().get(run.id)!.status).toBe("waiting_on_user_input");
+    // NO plan path: no plan, no plan_approval attention, ticket stays plannable
+    expect(plans().listByTicket(ticket.id)).toHaveLength(0);
+    expect(attention().list({ status: "open", ticketId: ticket.id })).toHaveLength(0);
+    expect(tickets().get(ticket.id)!.status).toBe("plannable");
+    expect(writeArtifact).not.toHaveBeenCalled();
+  });
+
+  it("OTTER_FORM takes precedence over a co-emitted OTTER_PLAN", async () => {
+    // Real createForm parks the producing run; emulate that so the orchestrator's
+    // re-broadcast of run_status_changed is a no-op (DB status != completed) — else
+    // the subscriber would re-enter and re-process indefinitely.
+    const createForm = vi.fn((ticketId: string, _input: CreateFormInput) => {
+      const runId = runs().list({ ticketId }).find((r) => r.type === "planning")!.id;
+      runs().setStatus(runId, "waiting_on_user_input");
+      return { form: { id: "form-1" }, comment: { id: "c-1" } };
+    });
+    startOrchestrator(true, createForm as never);
+
+    const ticket = tickets().create({ title: "Both markers" });
+    transitionToPlannable(ticket.id);
+    await vi.waitFor(() => expect(startPlanningRun).toHaveBeenCalledTimes(1));
+    const run = runs().list({ ticketId: ticket.id }).find((r) => r.type === "planning")!;
+
+    // Emit BOTH a plan and a form in the same final message — form must win.
+    const both = `${planBlock('{"status":"PLAN_READY","title":"Guessed plan"}', "# Guessed plan\n\nbody")}\n\n${formBlock(FORM_JSON)}`;
+    runEvents().append(run.id, "note", { kind: "structured_result", value: both });
+    runs().setStatus(run.id, "completed");
+    bus.publish(CHANNELS.project, "run_status_changed", { id: run.id, runId: run.id, seq: 1 });
+
+    await vi.waitFor(() => expect(createForm).toHaveBeenCalledTimes(1));
+    // form path won → no plan created
+    expect(plans().listByTicket(ticket.id)).toHaveLength(0);
+    expect(tickets().get(ticket.id)!.status).toBe("plannable");
   });
 });

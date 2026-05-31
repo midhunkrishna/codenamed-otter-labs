@@ -44,6 +44,10 @@ export {
   createAttentionRepository,
   type AttentionRepository,
 } from "./repositories/attention.js";
+export {
+  createFormRepository,
+  type FormRepository,
+} from "./repositories/forms.js";
 
 /** Result of {@link initPersistence}. */
 export interface InitResult {

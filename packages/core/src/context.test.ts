@@ -83,32 +83,27 @@ maybe("buildTicketContext (real SQLite)", () => {
     expect(md.indexOf("first comment")).toBeLessThan(md.indexOf("second comment"));
   });
 
-  it("renders form answers as Q&A pairs and omits the section when none exist", () => {
+  it("no longer renders the legacy '## Form answers' section (MIN-27 replaces it)", () => {
+    // MIN-27: clarification context is built from the forms tables (see
+    // context.forms.test.ts), NOT from a `kind:'form'` comment's {question,answer}
+    // metadata. That legacy reader was removed; the old synthetic-form comment must
+    // no longer produce a Q&A section.
     const tickets = persistence!.createTicketRepository(db);
     const comments = persistence!.createCommentRepository(db);
 
-    // No form comments → section omitted.
-    const plain = tickets.create({ title: "No forms" });
-    const noForm = buildTicketContext(db, plain.id, { mode: "planning", projectRoot: "/srv/app" });
-    expect(noForm).not.toContain("## Form answers");
-
-    // With form comments → section present with Q&A.
-    const withForm = tickets.create({ title: "Has forms" });
-    comments.create(withForm.id, {
+    const t = tickets.create({ title: "Legacy form comment" });
+    comments.create(t.id, {
       body: "form answer 1",
       metadata: { kind: "form", question: "What is the deadline?", answer: "Next Friday" },
     });
-    comments.create(withForm.id, {
-      body: "ordinary comment",
-      author: "carol",
-    });
-    const md = buildTicketContext(db, withForm.id, { mode: "planning", projectRoot: "/srv/app" });
-    expect(md).toContain("## Form answers");
-    expect(md).toContain("What is the deadline?");
-    expect(md).toContain("Next Friday");
-    // Form comment body is not duplicated as a normal comment.
+    comments.create(t.id, { body: "ordinary comment", author: "carol" });
+
+    const md = buildTicketContext(db, t.id, { mode: "planning", projectRoot: "/srv/app" });
+    // The legacy section + its synthesized Q&A are gone.
+    expect(md).not.toContain("## Form answers");
+    // A `kind:'form'` comment is still excluded from the Comments conversation.
     expect(md).not.toContain("form answer 1");
-    // Ordinary comment still appears under Comments.
+    // Ordinary comments still appear under Comments.
     expect(md).toContain("ordinary comment");
   });
 
@@ -210,10 +205,6 @@ maybe("buildTicketContext (real SQLite)", () => {
     const comments = persistence!.createCommentRepository(db);
     const ticket = tickets.create({ title: "Deterministic" });
     comments.create(ticket.id, { body: "c1", author: "a" });
-    comments.create(ticket.id, {
-      body: "fa",
-      metadata: { kind: "form", question: "Q?", answer: "A!" },
-    });
     insertPlan(ticket.id, "approved", "the plan");
 
     const opts = { mode: "execution" as const, projectRoot: "/srv/app", constraints: ["x"] };

@@ -35,6 +35,12 @@ export interface CommentRepository {
     input: { body: string; author?: string; metadata?: Record<string, unknown> },
   ): Comment;
   listByTicket(ticketId: string): Comment[];
+  /**
+   * Shallow-merge `metadata` into a comment's existing metadata and persist.
+   * Used for delivery-status updates (MIN-26). Returns the updated comment.
+   * Throws if the comment does not exist.
+   */
+  setMetadata(commentId: string, metadata: Record<string, unknown>): Comment;
 }
 
 /**
@@ -76,6 +82,32 @@ export function createCommentRepository(db: Database.Database): CommentRepositor
         .prepare("SELECT * FROM comment WHERE ticket_id = ? ORDER BY created_at ASC, rowid ASC")
         .all(ticketId) as CommentRow[];
       return rows.map(rowToComment);
+    },
+
+    setMetadata(commentId, metadata) {
+      if (!isPlainObject(metadata)) {
+        throw new Error("comment metadata must be a plain JSON object");
+      }
+      const row = db.prepare("SELECT * FROM comment WHERE id = ?").get(commentId) as
+        | CommentRow
+        | undefined;
+      if (!row) {
+        throw new Error(`comment "${commentId}" not found`);
+      }
+      const existing = rowToComment(row).metadata;
+      const merged = { ...existing, ...metadata };
+      let metaJson: string;
+      try {
+        metaJson = JSON.stringify(merged);
+      } catch (cause) {
+        throw new Error("comment metadata must be JSON-serializable", { cause });
+      }
+      if (metaJson === undefined) {
+        throw new Error("comment metadata must be JSON-serializable");
+      }
+      db.prepare("UPDATE comment SET metadata = ? WHERE id = ?").run(metaJson, commentId);
+      const updated = db.prepare("SELECT * FROM comment WHERE id = ?").get(commentId) as CommentRow;
+      return rowToComment(updated);
     },
   };
 }

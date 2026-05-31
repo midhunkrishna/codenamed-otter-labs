@@ -18,6 +18,8 @@
  * or filesystem side effects.
  */
 import type Database from "better-sqlite3";
+import { createFormRepository } from "@otter/persistence";
+import type { Form, FormAnswer, FormQuestion } from "@otter/shared";
 import {
   HOW_TO_READ,
   INSTRUCTIONS_PREAMBLE,
@@ -66,8 +68,6 @@ interface PlanRow {
 /** Parsed shape of a comment's metadata JSON column. */
 interface CommentMeta {
   kind?: unknown;
-  question?: unknown;
-  answer?: unknown;
   [key: string]: unknown;
 }
 
@@ -102,17 +102,11 @@ function nonEmpty(value: unknown): value is string {
  * one backtick longer than the longest backtick run in the text (CommonMark-safe),
  * so the content cannot break out of the block. Deterministic for identical input.
  */
-function fenceUntrusted(text: string): string {
+export function fenceUntrusted(text: string): string {
   const runs = text.match(/`+/g);
   const longest = runs ? runs.reduce((max, run) => Math.max(max, run.length), 0) : 0;
   const ticks = "`".repeat(Math.max(3, longest + 1));
   return `${ticks}\n${text}\n${ticks}`;
-}
-
-/** A question/answer pair distilled from a `kind: "form"` comment. */
-interface FormAnswer {
-  question: string;
-  answer: string;
 }
 
 /** Render a `- Plan <id> (status: <status>)` bullet list. */
@@ -151,12 +145,64 @@ function commentsSection(conversation: ParsedComment[]): string {
   return `## Comments\n\n${entries.join("\n\n")}`;
 }
 
-/** Form answers as Q&A pairs (both sides untrusted → fenced). */
-function formAnswersSection(formAnswers: FormAnswer[]): string {
-  const entries = formAnswers.map(
-    (qa) => `**Q:**\n${fenceUntrusted(qa.question)}\n**A:**\n${fenceUntrusted(qa.answer)}`,
-  );
-  return `## Form answers\n\n${entries.join("\n\n")}`;
+/** Render a single value (answer / default) as a fenced, deterministic string. */
+function renderValue(value: unknown): string {
+  if (value === null || value === undefined) return "_(no answer)_";
+  if (typeof value === "string") {
+    return value.trim().length > 0 ? fenceUntrusted(value) : "_(no answer)_";
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "_(no answer)_";
+    return fenceUntrusted(value.map((v) => String(v)).join(", "));
+  }
+  if (typeof value === "boolean" || typeof value === "number") {
+    return fenceUntrusted(String(value));
+  }
+  // Objects / anything else: stable JSON.
+  return fenceUntrusted(JSON.stringify(value));
+}
+
+/**
+ * Clarification Forms section, assembled deterministically from the forms tables
+ * (form + questions + per-question answers). Oldest-first; each form gets a
+ * status line and a Q/A list. All user/agent-supplied text is fenced as DATA.
+ * Returns null when the ticket has no forms.
+ */
+function clarificationFormsSection(forms: Form[]): string | null {
+  if (forms.length === 0) return null;
+
+  const answersByQuestion = (form: Form): Map<string, FormAnswer> => {
+    const map = new Map<string, FormAnswer>();
+    for (const a of form.answers) map.set(a.questionId, a); // last write wins (createdAt ASC)
+    return map;
+  };
+
+  const renderQuestion = (q: FormQuestion, answer: FormAnswer | undefined): string => {
+    const required = q.required ? " (required)" : "";
+    const lines = [`- **${q.key}**${required} [${q.type}]`];
+    lines.push(`  - Q: ${fenceUntrusted(q.label)}`);
+    if (answer !== undefined) {
+      lines.push(`  - A: ${renderValue(answer.value)}`);
+    } else {
+      lines.push(`  - A: _(unanswered)_`);
+    }
+    return lines.join("\n");
+  };
+
+  const renderForm = (form: Form): string => {
+    const blocks = form.blocksTicket ? ", blocks ticket" : "";
+    const head = `### Form ${form.id} — ${fenceUntrusted(form.title)}`;
+    const statusLine = `Status: ${form.status} (phase: ${form.phase}${blocks})`;
+    const questions = [...form.questions].sort((a, b) => a.sortOrder - b.sortOrder);
+    const answers = answersByQuestion(form);
+    const qa =
+      questions.length > 0
+        ? questions.map((q) => renderQuestion(q, answers.get(q.id))).join("\n")
+        : "_No questions._";
+    return `${head}\n\n${statusLine}\n\n${qa}`;
+  };
+
+  return `## Clarification Forms\n\n${forms.map(renderForm).join("\n\n")}`;
 }
 
 /**
@@ -248,20 +294,18 @@ export function buildTicketContext(
     )
     .all(ticketId) as PlanRow[];
 
-  // Form answers: comments tagged metadata.kind === "form" carrying {question, answer}.
-  const formAnswers = comments
-    .filter((c) => c.meta.kind === "form")
-    .map((c) => ({
-      question: nonEmpty(c.meta.question) ? c.meta.question.trim() : "",
-      answer: nonEmpty(c.meta.answer) ? c.meta.answer.trim() : "",
-    }))
-    .filter((qa) => qa.question !== "" || qa.answer !== "");
+  // Clarification forms (MIN-27): assembled from the forms tables (form +
+  // questions + answers), NOT from comment metadata. The form repo hydrates
+  // questions (sortOrder ASC) + answers (createdAt ASC); we list oldest-first so
+  // the section is chronological and byte-deterministic.
+  const forms = createFormRepository(db).listByTicket(ticketId).slice().reverse();
 
   // The oldest plan whose status is "approved" is the canonical approved plan.
   const approvedPlan = planRows.find((p) => p.status === "approved");
 
-  // Comments — chronological. Non-form comments are the conversation; form
-  // comments are surfaced separately below, so exclude them here.
+  // Comments — chronological. The `form` / `form_answer` kinds are presented in
+  // the Clarification Forms section (and as a readable transcript), so they stay
+  // in the conversation; only the legacy synthetic-form marker is excluded.
   const conversation = comments.filter((c) => c.meta.kind !== "form");
 
   // Assemble the document as an ordered list of section blocks. Each block is a
@@ -273,7 +317,7 @@ export function buildTicketContext(
     HOW_TO_READ,
     descriptionSection(ticket),
     commentsSection(conversation),
-    formAnswers.length > 0 ? formAnswersSection(formAnswers) : null,
+    clarificationFormsSection(forms),
     plansSection(planRows, approvedPlan, opts.mode),
     projectSection(opts),
     instructionsSection(opts.mode),

@@ -121,7 +121,11 @@ lands.
   - `permission_request` → a `permission` producer (permissions/approvals theme; `permission`
     table exists since 0001 but nothing writes attention from it).
   - `clarification_required` → **forms** (MIN-27 `[forms] comment-as-form`); on an agent
-    question, open a `clarification_required` item over the `form` source.
+    question, open a `clarification_required` item over the `form` source. ✅ **DONE (plan
+    008).** `createFormService` opens `clarification_required` over `sourceType:'form'` on
+    form creation and `resolveBySource('form', formId, 'clarification_required')` on
+    submit/dismiss. Live producer: the `<<<OTTER_FORM>>>` Claude output contract (a planning
+    run emitting a form) **and** `POST /api/tickets/:id/forms`.
   - `verification_review` → **verification packets** (MIN-39–42); on execution-complete,
     open a `verification_review` item over the `verification_packet` source.
   - `execution_failed` / `run_stalled` → **execution runs** (execution theme + MIN-46). No
@@ -135,6 +139,9 @@ lands.
   sourceType, sourceId, attentionType?)` when the source action completes. Wire the
   expanded-card live actions (MIN-38) to the real source API at the same time (today only
   `plan_approval` has approve/send-back endpoints; other types render context + link).
+- **Update (plan 008):** `clarification_required` is now a **live producer** (forms). The
+  remaining 4 (permission_request, verification_review, execution_failed, run_stalled) still
+  ship with their owning themes.
 - **Note (supersedes 006 model):** plan 007 replaced the minimal `attention_item` (singular)
   table from plan 006 with the canonical `attention_items` (plural) table and repointed the
   orchestrator + plan-approval routes onto it (migration `0005`, additive + backfill). The
@@ -222,3 +229,29 @@ lands.
 - **status:** ✅ Decided (A). **Option B (`node:sqlite`) remains the escape hatch** if
   distribution to strangers/Docker later hits native-install friction — usage is contained
   (`pragma` ×2, `transaction` ×4), so the migration stays small.
+
+---
+
+## From plan 008 — comment-context (MIN-26/27)
+
+### D-008-1 · Extra parked run states
+- **What:** plan 008 uses only `waiting_on_user_input` (already in `RUN_STATUSES`) for the
+  comment-resume seam. The user named further parked states the runtime should eventually
+  model: `paused`, `failed_recoverable`, `waiting_on_permission_resolved`.
+- **Do when:** permissions/execution themes land. Add the statuses to `RUN_STATUSES` (additive)
+  and extend the forwarder's resumable-state set in `forwarding/forwarder.ts` (`findResumableRun`).
+- **status:** Pending
+
+### D-008-2 · Deferred form field types
+- **What:** MVP supports `short_text/long_text/single_select/multi_select/boolean`. Deferred:
+  `file_upload/date/number/code_reference/secret_input` (MIN-27 explicitly defers these).
+- **Do when:** a richer-forms pass is scheduled. Extend `FORM_FIELD_TYPES` + `validateAnswers`
+  in `@otter/shared/forms.ts` and add the field renderers in `ui/FormCommentCard.tsx`.
+- **status:** Pending
+
+### D-008-3 · Structured form-dismissal columns
+- **What:** `forms.dismiss(reason, byUserId)` records who/why by appending an audit note to the
+  form `description` (migration `0006` has no dedicated columns).
+- **Do when:** dismissal needs structured querying. Add `dismiss_reason` / `dismissed_by`
+  columns in a later additive migration and repoint the repo.
+- **status:** Pending
