@@ -37,7 +37,9 @@ describe("detectClaude (MIN-18)", () => {
   });
 
   it("available binary → ready:true with parsed version", async () => {
-    const status = await detectClaude({ binPath: fakeBin });
+    // Generous timeout: under the full parallel suite, spawning the shell-script
+    // fake bin can exceed the snappy 3s production default and falsely read not-ready.
+    const status = await detectClaude({ binPath: fakeBin, timeoutMs: 15000 });
     expect(status.ready).toBe(true);
     expect(status.version).toBe("1.2.3");
     expect(status.error).toBeUndefined();

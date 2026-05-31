@@ -141,6 +141,22 @@ maybe("buildTicketContext (real SQLite)", () => {
     expect(md).not.toContain("Mode: execution.");
   });
 
+  it("planning mode appends the OTTER_PLAN output contract; execution mode does not", () => {
+    const tickets = persistence!.createTicketRepository(db);
+    const ticket = tickets.create({ title: "Contract" });
+
+    const planning = buildTicketContext(db, ticket.id, { mode: "planning", projectRoot: "/srv/app" });
+    expect(planning).toContain("### Output contract");
+    expect(planning).toContain("<<<OTTER_PLAN>>>");
+    expect(planning).toContain("<<<OTTER_PLAN_END>>>");
+    expect(planning).toContain('"status":"PLAN_READY"');
+    expect(planning).toContain('"status":"PLAN_BLOCKED"');
+
+    const execution = buildTicketContext(db, ticket.id, { mode: "execution", projectRoot: "/srv/app" });
+    expect(execution).not.toContain("<<<OTTER_PLAN>>>");
+    expect(execution).not.toContain("### Output contract");
+  });
+
   it("surfaces project root and constraints", () => {
     const tickets = persistence!.createTicketRepository(db);
     const ticket = tickets.create({ title: "Constrained" });

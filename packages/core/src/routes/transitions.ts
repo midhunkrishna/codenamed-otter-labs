@@ -13,7 +13,7 @@
 import type { FastifyInstance } from "fastify";
 import { API_PREFIX, CHANNELS, isTicketStatus } from "@otter/shared";
 import type { Ticket, TicketEvent, TicketStatus } from "@otter/shared";
-import type { Database } from "@otter/persistence";
+import { createPlanRepository, type Database } from "@otter/persistence";
 import { canTransition, nextTransitions, type TransitionContext } from "../lifecycle.js";
 import type { Emit } from "../events/bus.js";
 import type { TicketRepo } from "./tickets.js";
@@ -36,12 +36,20 @@ export function registerTransitionRoutes(
   applyTransition: ApplyTransition,
   emit?: Emit,
 ): void {
+  // D-002-1 (plan §2.7): the real `planApproved` value comes from the plan repo — an
+  // approved plan must exist for `→ executable`/`→ in_progress`. The permissive default
+  // stays in `lifecycle.ts`; we pass the authoritative value here.
+  const plans = createPlanRepository(db);
+
   app.get<{ Params: { id: string } }>(
     `${API_PREFIX}/tickets/:id/transitions`,
     async (req, reply) => {
       const ticket = tickets.get(req.params.id);
       if (!ticket) return reply.code(404).send({ error: "ticket not found" });
-      const ctx: TransitionContext = { blockStatus: ticket.blockStatus };
+      const ctx: TransitionContext = {
+        blockStatus: ticket.blockStatus,
+        planApproved: plans.getApproved(ticket.id) !== undefined,
+      };
       return { current: ticket.status, next: nextTransitions(ticket.status, ctx) };
     },
   );
@@ -60,7 +68,10 @@ export function registerTransitionRoutes(
         return reply.code(400).send({ error: "detail must be a string" });
       }
       const to = body.to;
-      const ctx: TransitionContext = { blockStatus: ticket.blockStatus };
+      const ctx: TransitionContext = {
+        blockStatus: ticket.blockStatus,
+        planApproved: plans.getApproved(ticket.id) !== undefined,
+      };
       if (!canTransition(ticket.status, to, ctx)) {
         const reason =
           to === "in_progress" && ticket.blockStatus !== "none"

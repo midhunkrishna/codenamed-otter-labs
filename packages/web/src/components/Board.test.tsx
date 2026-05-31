@@ -26,6 +26,7 @@ function ticket(overrides: Partial<Ticket> = {}): Ticket {
     description: "",
     status: "created",
     blockStatus: "none",
+    approvedPlanId: null,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     ...overrides,
@@ -89,6 +90,11 @@ function installFetch(state: FakeState) {
     const transitionsMatch = path.match(/^\/api\/tickets\/([^/]+)\/transitions$/);
     if (transitionsMatch && method === "GET") {
       return Promise.resolve(jsonResponse(state.transitions));
+    }
+    // GET plans (TicketDetail's Plan tab) — Board tests have no plans.
+    const plansMatch = path.match(/^\/api\/tickets\/([^/]+)\/plans$/);
+    if (plansMatch && method === "GET") {
+      return Promise.resolve(jsonResponse([]));
     }
 
     return Promise.resolve(jsonResponse({ error: `unhandled ${path}` }, 500));

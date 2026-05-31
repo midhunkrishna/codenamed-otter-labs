@@ -16,12 +16,15 @@
     "start": "npm -w @otter/core run start",
     "dev": "concurrently -n core,web -c blue,magenta \"npm -w @otter/core run start\" \"npm -w @otter/web run dev\"",
     "build": "npm -ws --if-present run build",
+    "build:dist": "node scripts/build-dist.mjs",
+    "pack:app": "npm run build:dist && ( cd dist && npm pack --pack-destination .. )",
     "test": "vitest run",
     "typecheck": "tsc -b --noEmit"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "concurrently": "^9.1.0",
+    "esbuild": "^0.28.0",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"

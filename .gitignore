@@ -3,6 +3,7 @@ dist/
 *.tsbuildinfo
 .otter-labs/
 *.log
+*.tgz
 .DS_Store
 
 # decoded design-language source artifact (MIN-43)

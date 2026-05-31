@@ -16,6 +16,7 @@ import type { Emit } from "../events/bus.js";
 import { registerTicketRoutes } from "./tickets.js";
 import { registerCommentRoutes } from "./comments.js";
 import { registerTransitionRoutes } from "./transitions.js";
+import { registerPlanApprovalRoutes } from "./plans.js";
 
 /**
  * Register all `/api` ticket-core routes, backed by repositories built from `db`.
@@ -32,4 +33,5 @@ export function registerTicketCoreRoutes(
   registerTicketRoutes(app, tickets, emit);
   registerCommentRoutes(app, tickets, comments, emit);
   registerTransitionRoutes(app, db, tickets, applyTransition, emit);
+  registerPlanApprovalRoutes(app, db, emit);
 }

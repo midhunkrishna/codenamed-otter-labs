@@ -83,6 +83,8 @@ export interface Ticket {
   description: string;
   status: TicketStatus;
   blockStatus: BlockStatus;
+  /** The approved plan this ticket points at, or null (MIN-23). */
+  approvedPlanId: string | null;
   createdAt: string;
   updatedAt: string;
 }

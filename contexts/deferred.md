@@ -18,7 +18,12 @@ lands.
   approval flow`). Point `planApproved` at "an approved `plan` row exists for the
   ticket" and remove the permissive stub. Until then `→ executable` / `→ in_progress`
   are NOT gated on a plan.
-- **status:** Pending
+- **Landed in:** plan 006 (planning-loop, MIN-23). `routes/transitions.ts` now sets
+  `ctx.planApproved = plans.getApproved(ticket.id) !== undefined` in both the GET
+  (nextTransitions) and POST handlers, so `→ executable` is hidden/blocked without an
+  approved plan. The permissive default in `lifecycle.ts` is retained but the real
+  value is always passed now. Test: "executable transition fails without approved plan".
+- **status:** ✅ Done (plan 006)
 
 ---
 
@@ -70,3 +75,112 @@ lands.
   (note: independently versioned at 2.x — there is no 4.x); `ui/tone.ts`'s `inlineVars()`
   now delegates to `assignInlineVars`; `unwrapVar` shim deleted; call sites untouched.
 - **status:** ✅ Done (plan 005)
+
+---
+
+## From plan 006 — planning-loop (MIN-21/22/33/23)
+
+### D-006-1 · Auto-replan as a project setting
+- **What:** today, ANY entry into `plannable` (incl. a MIN-23 send-back) auto-starts a
+  planning run if no active one exists (orchestrator). The user wants this to become a
+  **per-project setting** (toggle whether send-back / plannable re-entry auto-re-plans).
+- **Why deferred:** user direction during plan-006 discovery — the always-on behavior is
+  the MVP; the toggle is an enhancement needing a project-settings surface that doesn't
+  exist yet (Settings nav is still a placeholder).
+- **Do when:** the project-settings theme lands. Gate
+  `orchestrator.maybeStartPlanningRun` on a `project.autoReplan` flag.
+- **status:** Pending
+
+### D-006-2 · Execution-report artifacts → MIN-46
+- **What:** MIN-33's scope also names execution summaries / diff artifacts under
+  `artifacts/execution-reports`. Plan 006 built the generic `writeArtifact` helper +
+  Docs view over **plan** artifacts only; the execution-report **producer** has no
+  source yet (no execution run captures file edits / diffs).
+- **Why deferred:** user direction — execution evidence is captured by
+  **MIN-46** `[execution] Capture execution workspace changes and diff evidence`;
+  execution reports must consume that real evidence, not invent it (MIN-33 invariant).
+- **Do when:** MIN-46 lands. Add an execution-report writer (`kind:'execution'`), a Docs
+  section listing `artifacts/execution-reports`, and ticket/run links to them.
+- **status:** Pending
+
+---
+
+## Packaging & distribution (from the npm/npx packaging discussion)
+
+### D-PKG-1 · Ship Otter as a single npx-runnable package
+- **What:** make `npx otter-labs` (or `npx ./otter-labs-*.tgz`) start the full app from any
+  directory. Required pieces (none optional for a self-contained npx package):
+  1. **Bundle the monorepo** — the four workspace packages depend on each other via private
+     `"*"` versions that won't resolve from a tarball/registry, so esbuild-bundle
+     `core + shared + persistence` into `dist/cli.js`; keep real runtime deps declared so
+     `npm install` builds them: `better-sqlite3`, `fastify`, `@fastify/websocket`,
+     `@fastify/static` (NEW), `execa`.
+  2. **Build TS→JS + serve the UI same-origin** — `bin → dist/cli.js` with a plain
+     `#!/usr/bin/env node` shebang (drop the tsx-at-runtime shebang); add `@fastify/static`
+     to serve the built web bundle so one port serves API + UI. No web-client change needed
+     (it already uses relative `/api` and derives `/ws` from `location.host`).
+  3. **Ship non-JS assets** — migrations resolve `migrations/*.sql` **relative to the module
+     at runtime** (`migrations.ts` uses `import.meta.url`), and the web assets are static
+     files; the build must copy `migrations/*.sql` + `web/dist` next to the bundle and list
+     them in `files`. `.otter-labs` still anchors to invocation cwd via `INIT_CWD`.
+- **Distribution options (identical build, different publish target):**
+  - **A · local tarball** (recommended to start): `npm pack` → `npx ./otter-labs-0.1.0.tgz`
+    from any dir / `npm i -g ./*.tgz`. No registry/account; private.
+  - **B · public npm**: `npm publish` → `npx otter-labs` anywhere. Needs the name + public.
+  - **C · private registry / GitHub Packages**: `npx @scope/otter-labs` with auth.
+  A→B/C is zero rework. Do A now, B/C later if desired.
+- **Landed:** built with **D-PKG-2 option A (better-sqlite3)**. New `bin.ts` entrypoint
+  (cli.ts is now side-effect-free — avoids the npx symlink self-run footgun); `server.ts`
+  serves the built UI same-origin via `@fastify/static` when a `web/` dir is present (dev
+  unaffected — Vite still serves there); `scripts/build-dist.mjs` esbuild-bundles
+  core+shared+persistence → `dist/cli.js` (externals: better-sqlite3, fastify,
+  @fastify/websocket, @fastify/static, execa), copies `migrations/*.sql` + `web/`, writes a
+  publishable manifest (`engines.node >=20`). Root scripts: `build:dist`, `pack:app`.
+  **Verified end-to-end:** installed the tarball into a scratch dir (native better-sqlite3
+  built, bin linked) and ran it — UI + API + SPA fallback served on one port, ticket
+  round-trips, `.otter-labs/otter.db` created in the invocation cwd.
+- **Gotchas for whoever publishes/extends this:**
+  - `pack:app` packs from **inside** `dist/` (`cd dist && npm pack --pack-destination ..`).
+    A bare `npm pack ./dist` run *under `npm run`* is hijacked by the workspace root and
+    packs the private root package instead (no bin/deps) — do not "simplify" it back.
+  - **Running a LOCAL tarball:** `npx ./otter-labs-*.tgz` does NOT work (npx tries to exec
+    the `.tgz`). Use `npm i -g ./otter-labs-*.tgz && otter-labs`, or `npm install
+    ./otter-labs-*.tgz` in a project then `npx otter-labs`. Once **published** (B/C),
+    `npx otter-labs` works directly.
+  - This repo's `node` comes from **mise** (`.mise.toml`); a machine without it just needs
+    any Node ≥20 on PATH.
+- **status:** ✅ Done (option A). B/C (publish to a registry) remain available with no rework.
+
+### D-PKG-2 · Decide the SQLite driver for distribution (better-sqlite3 native risk)
+- **What:** `better-sqlite3` is a **native addon**. On `npm`/`npx` install it normally
+  downloads a prebuilt `.node` (smooth on macOS x64/arm64, Linux glibc x64/arm64, Win x64,
+  for Node versions the release covers — 11.10 already covers Node 24). It falls back to a
+  **source compile** (needs python3 + C++ toolchain) when: (a) the user's Node is newer than
+  the better-sqlite3 release's prebuilds — made *more likely* by our `engines: node >=24`
+  pin; (b) uncommon platform/arch — Alpine/musl (Docker!), Windows arm64, 32-bit ARM, BSD;
+  (c) GitHub Releases unreachable (offline / corporate proxy); (d) slower npx cold start.
+- **Usage depth (checked):** better-sqlite3 is imported widely but almost entirely as a
+  *type*. API-specific usage is small + contained: `db.pragma(...)` ×2 (`database.ts`),
+  `db.transaction(fn)` ×4 (`migrations.ts`, `transitions.ts`, `plans.ts`, `runEvents.ts`);
+  everything else is plain `prepare().run/get/all`.
+- **Options:**
+  - **A · keep better-sqlite3, harden:** stay current (on 11.10) + **relax `engines.node`**
+    to a prebuild-covered range and document "needs Node X–Y." Lowest effort; native risk
+    remains for the edge cases above. OK if the audience is devs on normal machines.
+  - **B · migrate persistence to `node:sqlite`** (SQLite built into Node ≥22.5/24):
+    eliminates the native-install failure modes entirely (best for `npx`-to-strangers and
+    Docker). Cost: still **experimental** in Node 24 (emits a warning) + a contained refactor
+    — no `db.transaction(fn)` helper and no `db.pragma()` (use `db.exec("PRAGMA …")` + manual
+    `BEGIN/COMMIT`); `prepare/run/get/all` map ~1:1; the 256+ persistence tests guard it.
+  - (Pure-JS/WASM — sql.js / wa-sqlite / @libsql — bigger change, different persistence
+    semantics; `node:sqlite` is the natural fit.)
+- **Recommendation:** if the goal is "anyone can `npx otter-labs` and it just runs" → **B**.
+  If "I + a few devs run it locally" → **A** is fine. A quick spike on B (swap the driver,
+  run the suite) would show the real diff before committing.
+- **Do when:** before/with D-PKG-1 (it sets the dependency story).
+- **Decision:** **A — keep better-sqlite3** (user, packaging session). Manifest
+  `engines.node` relaxed to `>=20` for prebuild coverage. Native install verified working
+  via npm prebuild on macOS arm64 / Node 24.
+- **status:** ✅ Decided (A). **Option B (`node:sqlite`) remains the escape hatch** if
+  distribution to strangers/Docker later hits native-install friction — usage is contained
+  (`pragma` ×2, `transaction` ×4), so the migration stays small.
