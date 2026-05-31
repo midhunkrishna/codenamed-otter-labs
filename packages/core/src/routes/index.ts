@@ -17,6 +17,7 @@ import { registerTicketRoutes } from "./tickets.js";
 import { registerCommentRoutes } from "./comments.js";
 import { registerTransitionRoutes } from "./transitions.js";
 import { registerPlanApprovalRoutes } from "./plans.js";
+import { registerAttentionRoutes } from "./attention.js";
 
 /**
  * Register all `/api` ticket-core routes, backed by repositories built from `db`.
@@ -34,4 +35,5 @@ export function registerTicketCoreRoutes(
   registerCommentRoutes(app, tickets, comments, emit);
   registerTransitionRoutes(app, db, tickets, applyTransition, emit);
   registerPlanApprovalRoutes(app, db, emit);
+  registerAttentionRoutes(app, db, emit);
 }

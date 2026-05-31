@@ -32,3 +32,4 @@ export { ApprovalCard } from "./ApprovalCard";
 export { PlanCard } from "./PlanCard";
 export { FormCommentCard } from "./FormCommentCard";
 export { VerificationPacketTabs } from "./VerificationPacketTabs";
+export { AttentionItemCard } from "./AttentionItemCard";

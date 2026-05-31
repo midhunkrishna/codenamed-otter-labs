@@ -36,11 +36,12 @@ import * as css from "./PreviewRoute.css";
 
 /** Owner per attention type, just for visually varied specimen cards. */
 const ATTENTION_PRIORITY: Record<AttentionType, Priority> = {
-  permission: "high",
-  plan: "normal",
-  question: "normal",
-  verification: "high",
-  failure: "urgent",
+  permission_request: "high",
+  plan_approval: "normal",
+  clarification_required: "normal",
+  verification_review: "high",
+  execution_failed: "urgent",
+  run_stalled: "urgent",
 };
 
 function Specimen({ label, children }: { label: string; children: React.ReactNode }) {
@@ -151,7 +152,7 @@ export function PreviewRoute() {
           <div className={css.inlineRow}>
             <Pill tone="status.done">Done</Pill>
             <Pill tone="risk.critical">Critical</Pill>
-            <Pill tone="attention.permission">Permission</Pill>
+            <Pill tone="attention.permission_request">Permission</Pill>
             <Pill tone="owner.agent">Agent</Pill>
             <Pill tone="neutral">Neutral</Pill>
             <Pill tone="accent">Accent</Pill>
@@ -258,7 +259,7 @@ export function PreviewRoute() {
           />
         ))}
         <ExpandedAttentionCard
-          type="plan"
+          type="plan_approval"
           priority="high"
           title="Expanded attention card"
           summary="Sticky expanded variant with a source-specific body."

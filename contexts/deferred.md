@@ -46,7 +46,11 @@ lands.
   (`AttentionCard`, `ApprovalCard`, `VerificationPacketTabs`, `Drawer`, etc.):
   Attention MIN-37/38, Approvals MIN-31, Runs MIN-32, Docs MIN-33, Settings MIN-34,
   Verification MIN-39/40/41/42, Forms MIN-27.
-- **status:** Pending
+- **Landed so far:** Runs (plan 004, MIN-32), Docs (plan 006, MIN-33), **Attention (plan 007,
+  MIN-37/38)** — `AttentionPage` now replaces the placeholder, consuming `AttentionCard`/
+  `ExpandedAttentionCard` (+ the new `AttentionItemCard`). Still placeholders: Approvals
+  (MIN-31), Settings (MIN-34).
+- **status:** Pending (Approvals + Settings remain)
 
 ---
 
@@ -101,6 +105,40 @@ lands.
   execution reports must consume that real evidence, not invent it (MIN-33 invariant).
 - **Do when:** MIN-46 lands. Add an execution-report writer (`kind:'execution'`), a Docs
   section listing `artifacts/execution-reports`, and ticket/run links to them.
+- **status:** Pending
+
+---
+
+## From plan 007 — attention (MIN-36/37/38)
+
+### D-007-1 · Live producers for the non-plan attention_types
+- **What:** plan 007 builds the **canonical** `attention_items` model + APIs (MIN-36), the
+  Attention page (MIN-37), and expandable per-type cards (MIN-38) for **all 6** canonical
+  `attention_type` values. But the only **live auto-producer** wired is `plan_approval`
+  (the planning orchestrator, carried over from plan 006). The other 5 types are fully
+  modeled, API-creatable, UI-rendered, and tested — they just have **no source that emits
+  them yet**. Each producer belongs to its source's own theme:
+  - `permission_request` → a `permission` producer (permissions/approvals theme; `permission`
+    table exists since 0001 but nothing writes attention from it).
+  - `clarification_required` → **forms** (MIN-27 `[forms] comment-as-form`); on an agent
+    question, open a `clarification_required` item over the `form` source.
+  - `verification_review` → **verification packets** (MIN-39–42); on execution-complete,
+    open a `verification_review` item over the `verification_packet` source.
+  - `execution_failed` / `run_stalled` → **execution runs** (execution theme + MIN-46). No
+    execution-run producer or stall detector exists yet (only planning runs). On a failed
+    execution run open `execution_failed`; on no-activity timeout open `run_stalled`.
+- **Why deferred:** user direction during plan-007 discovery — model + UI + tests now; the
+  producers ship with their owning tickets so attention indexes *real* evidence, not stubs.
+- **Do when:** each owning theme lands. The seam is ready: call
+  `attention.open({attentionType, sourceType, sourceId, ticketId?, runId?, title,
+  summary, requiredAction, priority?})` from the producer, and `attention.resolveBySource(
+  sourceType, sourceId, attentionType?)` when the source action completes. Wire the
+  expanded-card live actions (MIN-38) to the real source API at the same time (today only
+  `plan_approval` has approve/send-back endpoints; other types render context + link).
+- **Note (supersedes 006 model):** plan 007 replaced the minimal `attention_item` (singular)
+  table from plan 006 with the canonical `attention_items` (plural) table and repointed the
+  orchestrator + plan-approval routes onto it (migration `0005`, additive + backfill). The
+  legacy `attention_item` table is dormant (not dropped).
 - **status:** Pending
 
 ---
